@@ -47,9 +47,8 @@ export default function SearchScreen() {
       setFriends(data?.friends || []);
       setMessages(data?.messages || []);
     } catch (e) {
-      // backend not ready yet - filter mock data locally
-      setFriends(MOCK_FRIENDS.filter(f => f.name.toLowerCase().includes(q) || f.username.toLowerCase().includes(q)));
-      setMessages(MOCK_MESSAGES.filter(m => m.snippet.toLowerCase().includes(q) || m.chatName.toLowerCase().includes(q)));
+      setFriends([]);
+      setMessages([]);
     }
   }
 

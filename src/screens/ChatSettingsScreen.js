@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, ImageBackground,
+  View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, ImageBackground, Alert,
 } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { ChevronLeft } from 'lucide-react-native';
+import { useAuth } from '../context/AuthContext';
 
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
@@ -73,10 +74,53 @@ const SECTIONS = [
 export default function ChatSettingsScreen() {
   const route = useRoute();
   const navigation = useNavigation();
+  const { apiRequest } = useAuth();
   const chat = route.params?.chat || { id: 'unknown', name: 'Unknown', color: '#9333ea' };
   const [fullscreenPic, setFullscreenPic] = useState(false);
 
   const background = resolveBackground(chat);
+
+  async function handleDangerAction(key) {
+    if (key === 'block') {
+      Alert.alert('Block contact', `Block ${chat.name}? They won't be able to message you.`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Block', style: 'destructive', onPress: async () => {
+          try {
+            await apiRequest('/friends/block', { method: 'POST', body: JSON.stringify({ user_id: Number(chat.id) }) });
+            navigation.popToTop();
+          } catch (e) {
+            Alert.alert('Error', 'Could not block this contact. Try again.');
+          }
+        }},
+      ]);
+    } else if (key === 'reportspam') {
+      Alert.alert('Report spam/scam', `Report ${chat.name} to B24?`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Report', style: 'destructive', onPress: async () => {
+          try {
+            await apiRequest('/report/user', { method: 'POST', body: JSON.stringify({ reported_user_id: Number(chat.id), reason: 'spam_or_scam' }) });
+            Alert.alert('Reported', 'Thanks - our team will review this.');
+          } catch (e) {
+            Alert.alert('Error', 'Could not submit the report. Try again.');
+          }
+        }},
+      ]);
+    } else if (key === 'unfriend') {
+      Alert.alert('Remove contact', `Remove ${chat.name} from your friends?`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: async () => {
+          try {
+            await apiRequest('/friends/remove', { method: 'POST', body: JSON.stringify({ user_id: Number(chat.id) }) });
+            navigation.popToTop();
+          } catch (e) {
+            Alert.alert('Error', 'Could not remove this contact. Try again.');
+          }
+        }},
+      ]);
+    } else {
+      Alert.alert('Coming soon', 'This feature is still being built.');
+    }
+  }
 
   return (
     <View style={styles.screen}>
@@ -109,6 +153,7 @@ export default function ChatSettingsScreen() {
                 <TouchableOpacity
                   key={item.key}
                   style={[styles.row, i < section.items.length - 1 && styles.rowBorder]}
+                  onPress={() => section.danger ? handleDangerAction(item.key) : Alert.alert('Coming soon', 'This feature is still being built.')}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.rowLabel, section.danger && { color: '#ef4444' }]}>{item.label}</Text>

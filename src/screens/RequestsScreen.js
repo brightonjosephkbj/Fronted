@@ -15,29 +15,32 @@ export default function RequestsScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await apiRequest('/friend-requests');
-        setData({
-          pending: res.pending || [],
-          received: res.received || [],
-          canceled: res.canceled || [],
-          failed: res.failed || [],
-        });
+        // Backend currently only tracks requests received by me (pending
+        // friendships where I'm the target). Outgoing/canceled/failed have
+        // no backend model yet, so those tabs stay empty until that lands.
+        const res = await apiRequest('/friends/pending');
+        setData(d => ({ ...d, received: res.pending || [] }));
       } catch (e) {
         // backend not ready, keep empty lists
       }
     })();
   }, []);
 
-  async function accept(id) {
-    try { await apiRequest(`/friend-requests/${id}/accept`, { method: 'POST' }); } catch (e) {}
-    setData(d => ({ ...d, received: d.received.filter(r => r.id !== id) }));
+  async function respond(requesterId, action) {
+    try {
+      await apiRequest('/friends/respond', {
+        method: 'POST',
+        body: JSON.stringify({ requester_id: requesterId, action }),
+      });
+      setData(d => ({ ...d, received: d.received.filter(r => r.id !== requesterId) }));
+    } catch (e) {
+      // leave the item in place so the user can retry
+    }
   }
-  async function decline(id) {
-    try { await apiRequest(`/friend-requests/${id}/decline`, { method: 'POST' }); } catch (e) {}
-    setData(d => ({ ...d, received: d.received.filter(r => r.id !== id) }));
-  }
+  const accept = (id) => respond(id, 'accept');
+  const decline = (id) => respond(id, 'decline');
   async function cancel(id) {
-    try { await apiRequest(`/friend-requests/${id}/cancel`, { method: 'POST' }); } catch (e) {}
+    // No backend support yet for canceling an outgoing request — no-op for now.
     setData(d => ({ ...d, pending: d.pending.filter(r => r.id !== id) }));
   }
 
