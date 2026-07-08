@@ -81,9 +81,24 @@ export function AuthProvider({ children }) {
     return data;
   }
 
+  async function apiUpload(path, formData) {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data?.error || data?.message || 'Upload failed');
+    }
+    return data;
+  }
+
   return (
     <AuthContext.Provider
-      value={{ user, token, isLocked, loading, login, logout, unlock, lockNow, apiRequest, updateUserPoints }}
+      value={{ user, token, isLocked, loading, login, logout, unlock, lockNow, apiRequest, apiUpload, updateUserPoints }}
     >
       {children}
     </AuthContext.Provider>

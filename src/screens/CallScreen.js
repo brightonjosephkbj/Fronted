@@ -13,13 +13,6 @@ import {
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
 
-const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ],
-};
-
 function statusText(state, seconds) {
   if (state === 'ringing') return 'Ringing...';
   if (state === 'unreachable') return 'Unreachable';
@@ -38,7 +31,7 @@ export default function CallScreen() {
   const route = useRoute();
   const navigation = useNavigation();
   const { socket } = useSocket();
-  const { token } = useAuth();
+  const { token, apiRequest } = useAuth();
 
   const contact = route.params?.contact || { name: 'Unknown', color: '#6366f1' };
   const isIncoming = !!route.params?.incoming;
@@ -59,13 +52,14 @@ export default function CallScreen() {
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const pendingCandidatesRef = useRef([]);
+  const iceServersRef = useRef({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
 
   const callIdRef = useRef(route.params?.call_id || null);
   const otherIdRef = useRef(isIncoming ? route.params?.caller_id : route.params?.callee_id);
   const endedRef = useRef(false);
 
   function createPeerConnection() {
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    const pc = new RTCPeerConnection(iceServersRef.current);
 
     pc.onicecandidate = (event) => {
       if (event.candidate && socket) {
@@ -101,6 +95,19 @@ export default function CallScreen() {
     setLocalStream(stream);
     return stream;
   }
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiRequest('/webrtc/ice-servers');
+        if (data?.iceServers?.length) {
+          iceServersRef.current = { iceServers: data.iceServers };
+        }
+      } catch (err) {
+        console.log('Failed to fetch ICE servers, falling back to STUN only:', err);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     if (!socket || isIncoming) return;

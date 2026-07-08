@@ -2,10 +2,14 @@ import React, { useState } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, ImageBackground, Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from '@react-native-community/blur';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { ChevronLeft } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
+
+const CHAT_WALLPAPER_KEY = 'b24_chat_wallpapers';
+const WALLPAPER_COLORS = ['#4f46e5', '#9333ea', '#f97316', '#0ea5a4', '#db2777', '#16a34a', '#0f172a', '#eab308'];
 
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
@@ -17,16 +21,10 @@ function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   );
 }
 
-// Resolves a user's custom background. Until they set a photo/video,
-// this always falls back to a plain color (their chat.color or a default indigo).
 function resolveBackground(chat) {
-  const bg = chat.customBackground; // expected shape: { type: 'color'|'photo'|'video', value }
-  if (bg?.type === 'photo' && bg.value) {
-    return { type: 'photo', value: bg.value };
-  }
-  if (bg?.type === 'video' && bg.value) {
-    return { type: 'video', value: bg.value };
-  }
+  const bg = chat.customBackground;
+  if (bg?.type === 'photo' && bg.value) return { type: 'photo', value: bg.value };
+  if (bg?.type === 'video' && bg.value) return { type: 'video', value: bg.value };
   return { type: 'color', value: bg?.value || chat.color || '#4f46e5' };
 }
 
@@ -77,49 +75,156 @@ export default function ChatSettingsScreen() {
   const { apiRequest } = useAuth();
   const chat = route.params?.chat || { id: 'unknown', name: 'Unknown', color: '#9333ea' };
   const [fullscreenPic, setFullscreenPic] = useState(false);
+  const [muted, setMuted] = useState(!!chat.muted);
+  const [busy, setBusy] = useState(false);
+  const [chatWallpaper, setChatWallpaper] = useState(null);
+  const [wallpaperPickerOpen, setWallpaperPickerOpen] = useState(false);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(CHAT_WALLPAPER_KEY);
+        const map = raw ? JSON.parse(raw) : {};
+        setChatWallpaper(map[chat.id] || null);
+      } catch (e) {
+        // fall back to no override
+      }
+    })();
+  }, [chat.id]);
+
+  async function handleSelectChatWallpaper(color) {
+    setChatWallpaper(color);
+    setWallpaperPickerOpen(false);
+    try {
+      const raw = await AsyncStorage.getItem(CHAT_WALLPAPER_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      if (color) map[chat.id] = color;
+      else delete map[chat.id];
+      await AsyncStorage.setItem(CHAT_WALLPAPER_KEY, JSON.stringify(map));
+    } catch (e) {
+      Alert.alert('Error', "Couldn't save wallpaper for this chat. Try again.");
+    }
+  }
 
   const background = resolveBackground(chat);
+  const friendId = parseInt(chat.id, 10);
 
-  async function handleDangerAction(key) {
-    if (key === 'block') {
-      Alert.alert('Block contact', `Block ${chat.name}? They won't be able to message you.`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Block', style: 'destructive', onPress: async () => {
-          try {
-            await apiRequest('/friends/block', { method: 'POST', body: JSON.stringify({ user_id: Number(chat.id) }) });
-            navigation.popToTop();
-          } catch (e) {
-            Alert.alert('Error', 'Could not block this contact. Try again.');
-          }
-        }},
-      ]);
-    } else if (key === 'reportspam') {
-      Alert.alert('Report spam/scam', `Report ${chat.name} to B24?`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Report', style: 'destructive', onPress: async () => {
-          try {
-            await apiRequest('/report/user', { method: 'POST', body: JSON.stringify({ reported_user_id: Number(chat.id), reason: 'spam_or_scam' }) });
-            Alert.alert('Reported', 'Thanks - our team will review this.');
-          } catch (e) {
-            Alert.alert('Error', 'Could not submit the report. Try again.');
-          }
-        }},
-      ]);
-    } else if (key === 'unfriend') {
-      Alert.alert('Remove contact', `Remove ${chat.name} from your friends?`, [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: async () => {
-          try {
-            await apiRequest('/friends/remove', { method: 'POST', body: JSON.stringify({ user_id: Number(chat.id) }) });
-            navigation.popToTop();
-          } catch (e) {
-            Alert.alert('Error', 'Could not remove this contact. Try again.');
-          }
-        }},
-      ]);
-    } else {
-      Alert.alert('Coming soon', 'This feature is still being built.');
+  function showComingSoon(label) {
+    Alert.alert(label, "This isn't wired up yet — coming in a future update.");
+  }
+
+  async function toggleMute() {
+    if (busy) return;
+    const next = !muted;
+    setBusy(true);
+    try {
+      await apiRequest(`/chats/${chat.id}/mute`, {
+        method: 'POST',
+        body: JSON.stringify({ muted: next, is_group: !!chat.isGroup }),
+      });
+      setMuted(next);
+    } catch (e) {
+      Alert.alert('Error', "Couldn't update mute setting. Check your connection.");
+    } finally {
+      setBusy(false);
     }
+  }
+
+  function confirmBlock() {
+    Alert.alert(
+      `Block ${chat.name}?`,
+      "They won't be able to message you, and you won't see their messages.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Block', style: 'destructive', onPress: doBlock },
+      ]
+    );
+  }
+
+  async function doBlock() {
+    setBusy(true);
+    try {
+      await apiRequest('/friends/block', {
+        method: 'POST',
+        body: JSON.stringify({ user_id: friendId }),
+      });
+      navigation.goBack();
+    } catch (e) {
+      Alert.alert('Error', "Couldn't block this contact. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmUnfriend() {
+    Alert.alert(
+      `Remove ${chat.name}?`,
+      "You'll no longer be friends. They can send you a new friend request later.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: doUnfriend },
+      ]
+    );
+  }
+
+  async function doUnfriend() {
+    setBusy(true);
+    try {
+      await apiRequest('/friends/remove', {
+        method: 'POST',
+        body: JSON.stringify({ friend_id: friendId }),
+      });
+      navigation.goBack();
+    } catch (e) {
+      Alert.alert('Error', "Couldn't remove this contact. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmReport() {
+    Alert.alert(
+      `Report ${chat.name}?`,
+      'This sends a report to B24 for review.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Report', style: 'destructive', onPress: doReport },
+      ]
+    );
+  }
+
+  async function doReport() {
+    setBusy(true);
+    try {
+      await apiRequest('/report/user', {
+        method: 'POST',
+        body: JSON.stringify({ reported_user_id: friendId, reason: 'spam_or_scam' }),
+      });
+      Alert.alert('Reported', 'Thanks — our team will review this.');
+    } catch (e) {
+      Alert.alert('Error', "Couldn't send the report. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const actions = {
+    mute: toggleMute,
+    block: confirmBlock,
+    unfriend: confirmUnfriend,
+    reportspam: confirmReport,
+    wallpaper: () => setWallpaperPickerOpen(true),
+  };
+
+  function renderSub(item) {
+    if (item.key === 'mute') return muted ? 'On' : 'Off';
+    if (item.key === 'wallpaper') return chatWallpaper ? 'Custom color' : 'Same as default';
+    return item.sub;
+  }
+
+  function handlePress(item) {
+    if (actions[item.key]) return actions[item.key]();
+    showComingSoon(item.label);
   }
 
   return (
@@ -133,7 +238,6 @@ export default function ChatSettingsScreen() {
       </View>
 
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 14, paddingTop: 6 }}>
-        {/* profile header */}
         <GlassCard style={styles.profileCard}>
           <TouchableOpacity onPress={() => setFullscreenPic(true)}>
             <View style={[styles.profileAvatar, { backgroundColor: chat.color || '#9333ea' }]}>
@@ -144,7 +248,6 @@ export default function ChatSettingsScreen() {
           <Text style={styles.profileAbout}>{chat.about || 'Building B24 one bug at a time 🛠️'}</Text>
         </GlassCard>
 
-        {/* sections */}
         {SECTIONS.map(section => (
           <View key={section.title} style={{ marginTop: 16 }}>
             <Text style={[styles.sectionTitle, section.danger && { color: '#ef4444' }]}>{section.title}</Text>
@@ -153,11 +256,12 @@ export default function ChatSettingsScreen() {
                 <TouchableOpacity
                   key={item.key}
                   style={[styles.row, i < section.items.length - 1 && styles.rowBorder]}
-                  onPress={() => section.danger ? handleDangerAction(item.key) : Alert.alert('Coming soon', 'This feature is still being built.')}
+                  onPress={() => handlePress(item)}
+                  disabled={busy}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.rowLabel, section.danger && { color: '#ef4444' }]}>{item.label}</Text>
-                    {item.sub && <Text style={styles.rowSub}>{item.sub}</Text>}
+                    {renderSub(item) && <Text style={styles.rowSub}>{renderSub(item)}</Text>}
                   </View>
                   <Text style={styles.chevron}>›</Text>
                 </TouchableOpacity>
@@ -168,15 +272,12 @@ export default function ChatSettingsScreen() {
         <View style={{ height: 24 }} />
       </ScrollView>
 
-      {/* full-screen profile picture, backdrop = that user's own custom background */}
       <Modal visible={fullscreenPic} animationType="fade" onRequestClose={() => setFullscreenPic(false)}>
         {background.type === 'photo' ? (
           <ImageBackground source={{ uri: background.value }} style={styles.fullscreenBg}>
             <FullscreenContent chat={chat} onBack={() => setFullscreenPic(false)} />
           </ImageBackground>
         ) : background.type === 'video' ? (
-          // Video backdrop: swap in react-native-video here once video URLs are wired up.
-          // Falls back to a color tile in the meantime so nothing breaks.
           <View style={[styles.fullscreenBg, { backgroundColor: chat.color || '#4f46e5' }]}>
             <FullscreenContent chat={chat} onBack={() => setFullscreenPic(false)} />
           </View>
@@ -185,6 +286,32 @@ export default function ChatSettingsScreen() {
             <FullscreenContent chat={chat} onBack={() => setFullscreenPic(false)} />
           </View>
         )}
+      </Modal>
+
+      <Modal visible={wallpaperPickerOpen} transparent animationType="fade" onRequestClose={() => setWallpaperPickerOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={styles.pickerCard} tint={0.85}>
+            <Text style={styles.pickerTitle}>Wallpaper for {chat.name}</Text>
+            <View style={styles.pickerGrid}>
+              <TouchableOpacity
+                onPress={() => handleSelectChatWallpaper(null)}
+                style={[styles.pickerSwatch, { backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }, !chatWallpaper && styles.pickerSwatchActive]}
+              >
+                <Text style={{ fontSize: 9, fontWeight: '700', color: '#6b6b7a' }}>Default</Text>
+              </TouchableOpacity>
+              {WALLPAPER_COLORS.map(color => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => handleSelectChatWallpaper(color)}
+                  style={[styles.pickerSwatch, { backgroundColor: color }, chatWallpaper === color && styles.pickerSwatchActive]}
+                />
+              ))}
+            </View>
+            <TouchableOpacity onPress={() => setWallpaperPickerOpen(false)} style={styles.pickerCancel}>
+              <Text style={styles.pickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
       </Modal>
     </View>
   );
@@ -234,4 +361,12 @@ const styles = StyleSheet.create({
   fullscreenImage: { width: 240, height: 240, borderRadius: 24, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)' },
   fullscreenImageText: { color: 'white', fontSize: 84, fontWeight: '700' },
   fullscreenName: { textAlign: 'center', color: 'white', fontSize: 15, fontWeight: '700', paddingBottom: 30 },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  pickerCard: { width: '100%', maxWidth: 320, padding: 20, borderRadius: 24, alignItems: 'center' },
+  pickerTitle: { fontSize: 15, fontWeight: '800', color: '#0f0f1a', marginBottom: 16, textAlign: 'center' },
+  pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14 },
+  pickerSwatch: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: 'transparent' },
+  pickerSwatchActive: { borderColor: '#0f0f1a' },
+  pickerCancel: { marginTop: 18 },
+  pickerCancelText: { color: '#6b6b7a', fontWeight: '700', fontSize: 13.5 },
 });

@@ -4,7 +4,6 @@ import {
   Modal, Pressable, Animated, ImageBackground, Image, Platform, Alert,
 } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
-import { Audio } from 'expo-av';
 import Video from 'react-native-video';
 import Pdf from 'react-native-pdf';
 import FileViewer from 'react-native-file-viewer';
@@ -13,7 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
-import { BadgeCheck, Check, CheckCheck, ChevronLeft, FileText, Heart, Mic, Pause, Phone, Play, Plus, Send, Settings, Star, Video as VideoIcon, X } from 'lucide-react-native';
+import { BadgeCheck, Check, CheckCheck, ChevronLeft, FileText, Mic, Pause, Phone, Play, Plus, Send, Settings, Star, Video as VideoIcon, X } from 'lucide-react-native';
 
 const DEFAULT_WALLPAPER = require('../../assets/wallpapers/default-papercut.png');
 
@@ -89,61 +88,12 @@ function ShimmerTypingBubble() {
   );
 }
 
-function VoiceNoteBubble({ fromMe, uri }) {
+function VoiceNoteBubble({ fromMe }) {
   const [playing, setPlaying] = useState(false);
-  const [durationText, setDurationText] = useState('0:00');
-  const soundRef = useRef(null);
   const bars = useRef(Array.from({ length: 18 }, (_, i) => 4 + ((i * 37) % 14))).current;
-
-  useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync().catch(() => {});
-    };
-  }, []);
-
-  function formatMs(ms) {
-    const totalSec = Math.floor((ms || 0) / 1000);
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  }
-
-  async function togglePlay() {
-    if (!uri) return;
-    if (playing) {
-      await soundRef.current?.pauseAsync();
-      setPlaying(false);
-      return;
-    }
-    try {
-      if (!soundRef.current) {
-        const { sound, status } = await Audio.Sound.createAsync(
-          { uri },
-          { shouldPlay: true },
-          (status) => {
-            if (status.isLoaded) {
-              setDurationText(formatMs(status.durationMillis));
-              if (status.didJustFinish) {
-                setPlaying(false);
-                sound.setPositionAsync(0);
-              }
-            }
-          }
-        );
-        soundRef.current = sound;
-        if (status.isLoaded) setDurationText(formatMs(status.durationMillis));
-      } else {
-        await soundRef.current.playAsync();
-      }
-      setPlaying(true);
-    } catch (e) {
-      Alert.alert('Error', "Couldn't play this voice note.");
-    }
-  }
-
   return (
     <View style={styles.voiceRow}>
-      <TouchableOpacity onPress={togglePlay} style={[styles.voicePlayBtn, { backgroundColor: fromMe ? 'rgba(255,255,255,0.9)' : '#0f0f1a' }]}>
+      <TouchableOpacity onPress={() => setPlaying(p => !p)} style={[styles.voicePlayBtn, { backgroundColor: fromMe ? 'rgba(255,255,255,0.9)' : '#0f0f1a' }]}>
         {playing ? <Pause size={11} color={fromMe ? '#4f46e5' : 'white'} /> : <Play size={11} color={fromMe ? '#4f46e5' : 'white'} />}
       </TouchableOpacity>
       <View style={styles.voiceBars}>
@@ -151,7 +101,7 @@ function VoiceNoteBubble({ fromMe, uri }) {
           <View key={i} style={[styles.voiceBar, { height: playing ? h + 4 : h, backgroundColor: fromMe ? 'rgba(255,255,255,0.7)' : '#c7c7d1' }]} />
         ))}
       </View>
-      <Text style={[styles.voiceDuration, { color: fromMe ? 'rgba(255,255,255,0.75)' : '#9ca3af' }]}>{durationText}</Text>
+      <Text style={[styles.voiceDuration, { color: fromMe ? 'rgba(255,255,255,0.75)' : '#9ca3af' }]}>0:24</Text>
     </View>
   );
 }
@@ -230,7 +180,7 @@ function msgMetaKey(chatId) {
 export default function ChatDetailScreen() {
   const route = useRoute();
   const navigation = useNavigation();
-  const { apiRequest, apiUpload, user, token } = useAuth();
+  const { apiRequest, user, token } = useAuth();
   const { socket } = useSocket();
   const chat = route.params?.chat || { id: 'unknown', name: 'Unknown', color: '#9333ea' };
   const recipientId = parseInt(chat.id, 10);
@@ -248,16 +198,8 @@ export default function ChatDetailScreen() {
   const [forwardLoading, setForwardLoading] = useState(false);
   const [starredIds, setStarredIds] = useState([]);
   const [deletedIds, setDeletedIds] = useState([]);
-  const [clearedAt, setClearedAt] = useState(0);
-  const [reactions, setReactions] = useState({});
-  const [popId, setPopId] = useState(null);
-  const popScale = useRef(new Animated.Value(0)).current;
-  const [isRecording, setIsRecording] = useState(false);
-  const recordingRef = useRef(null);
   const lastTapRef = useRef({ id: null, time: 0 });
   const socketRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
-  const otherTypingTimeoutRef = useRef(null);
 
   const formatTime = (unixSeconds) => {
     const d = new Date(unixSeconds * 1000);
@@ -269,10 +211,8 @@ export default function ChatDetailScreen() {
     from: m.sender_id === user?.id ? 'me' : 'them',
     text: m.content,
     time: formatTime(m.timestamp),
-    ts: m.timestamp,
     ticks: m.sender_id === user?.id ? (m.read_status ? 'read' : 'delivered') : undefined,
     voice: m.media_type === 'voice',
-    mediaUrl: m.media_url,
     revealed: true,
   }), [user?.id]);
 
@@ -285,8 +225,6 @@ export default function ChatDetailScreen() {
           const parsed = JSON.parse(raw);
           setStarredIds(parsed.starred || []);
           setDeletedIds(parsed.deletedForMe || []);
-          setClearedAt(parsed.clearedAt || 0);
-          setReactions(parsed.reactions || {});
         }
       } catch (e) {
         // corrupted local meta, ignore
@@ -294,35 +232,14 @@ export default function ChatDetailScreen() {
     })();
   }, [recipientId]);
 
-  async function persistMsgMeta(nextStarred, nextDeleted, nextReactions = reactions) {
+  async function persistMsgMeta(nextStarred, nextDeleted) {
     setStarredIds(nextStarred);
     setDeletedIds(nextDeleted);
-    if (nextReactions !== reactions) setReactions(nextReactions);
     try {
-      await AsyncStorage.setItem(msgMetaKey(recipientId), JSON.stringify({ starred: nextStarred, deletedForMe: nextDeleted, clearedAt, reactions: nextReactions }));
+      await AsyncStorage.setItem(msgMetaKey(recipientId), JSON.stringify({ starred: nextStarred, deletedForMe: nextDeleted }));
     } catch (e) {
       // best-effort
     }
-  }
-
-  function toggleReaction(msgId, emoji = '❤️') {
-    const next = { ...reactions };
-    if (next[msgId] === emoji) {
-      delete next[msgId];
-    } else {
-      next[msgId] = emoji;
-    }
-    persistMsgMeta(starredIds, deletedIds, next);
-  }
-
-  function triggerHeartPop(msgId) {
-    setPopId(msgId);
-    popScale.setValue(0);
-    Animated.sequence([
-      Animated.spring(popScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 12 }),
-      Animated.delay(250),
-      Animated.timing(popScale, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => setPopId(null));
   }
 
   // Load history
@@ -353,34 +270,14 @@ export default function ChatDetailScreen() {
         from: data.sender_id === user?.id ? 'me' : 'them',
         text: data.content,
         time: formatTime(Math.floor(Date.now() / 1000)),
-        ts: Math.floor(Date.now() / 1000),
         ticks: data.sender_id === user?.id ? 'sent' : undefined,
         voice: data.media_type === 'voice',
-        mediaUrl: data.media_url,
         revealed: false,
       }]);
     };
 
-    const onTyping = (data) => {
-      if (data.sender_id !== recipientId) return;
-      setOtherTyping(true);
-      if (otherTypingTimeoutRef.current) clearTimeout(otherTypingTimeoutRef.current);
-      otherTypingTimeoutRef.current = setTimeout(() => setOtherTyping(false), 3000);
-    };
-    const onStopTyping = (data) => {
-      if (data.sender_id !== recipientId) return;
-      if (otherTypingTimeoutRef.current) clearTimeout(otherTypingTimeoutRef.current);
-      setOtherTyping(false);
-    };
-
     socket.on('new_message', onNewMessage);
-    socket.on('typing', onTyping);
-    socket.on('stop_typing', onStopTyping);
-    return () => {
-      socket.off('new_message', onNewMessage);
-      socket.off('typing', onTyping);
-      socket.off('stop_typing', onStopTyping);
-    };
+    return () => socket.off('new_message', onNewMessage);
   }, [socket, recipientId, user?.id]);
 
   const markRevealed = useCallback((id) => {
@@ -396,8 +293,6 @@ export default function ChatDetailScreen() {
     }
     setInput('');
     setReplyTo(null);
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    socketRef.current.emit('stop_typing', { token, recipient_id: recipientId });
     socketRef.current.emit('send_message', {
       token,
       recipient_id: recipientId,
@@ -405,67 +300,10 @@ export default function ChatDetailScreen() {
     });
   }
 
-  async function startRecording() {
-    try {
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Microphone access needed', 'Enable microphone permission to record voice notes.');
-        return;
-      }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      recordingRef.current = recording;
-      setIsRecording(true);
-    } catch (e) {
-      Alert.alert('Error', "Couldn't start recording.");
-    }
-  }
-
-  async function stopRecordingAndSend() {
-    const recording = recordingRef.current;
-    if (!recording) { setIsRecording(false); return; }
-    setIsRecording(false);
-    recordingRef.current = null;
-    try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
-      if (!uri || !socketRef.current) return;
-
-      const formData = new FormData();
-      formData.append('file', { uri, name: 'voice.m4a', type: 'audio/m4a' });
-      formData.append('type', 'voice');
-
-      const res = await apiUpload('/media/upload', formData);
-      const content = res?.transcription?.trim() || 'Voice message';
-
-      socketRef.current.emit('send_message', {
-        token,
-        recipient_id: recipientId,
-        content,
-        media_type: 'voice',
-        media_url: res.url,
-      });
-    } catch (e) {
-      Alert.alert('Error', "Couldn't send voice note.");
-    }
-  }
-
-  function handleInputChange(text) {
-    setInput(text);
-    if (!socketRef.current) return;
-    socketRef.current.emit('typing', { token, recipient_id: recipientId });
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      socketRef.current?.emit('stop_typing', { token, recipient_id: recipientId });
-    }, 1500);
-  }
-
   function handleDoubleTap(msgId) {
     const now = Date.now();
     if (lastTapRef.current.id === msgId && now - lastTapRef.current.time < 300) {
       lastTapRef.current = { id: null, time: 0 };
-      toggleReaction(msgId);
-      triggerHeartPop(msgId);
     } else {
       lastTapRef.current = { id: msgId, time: now };
     }
@@ -550,7 +388,7 @@ export default function ChatDetailScreen() {
     ];
   }
 
-  const visibleMessages = messages.filter(m => !deletedIds.includes(m.id) && (!clearedAt || !m.ts || m.ts >= clearedAt));
+  const visibleMessages = messages.filter(m => !deletedIds.includes(m.id));
 
   const renderMessage = ({ item }) => {
     const isMe = item.from === 'me';
@@ -602,7 +440,7 @@ export default function ChatDetailScreen() {
       >
         <GlassView style={[styles.bubble, { backgroundColor: isMe ? 'rgba(79,70,229,0.55)' : undefined }]} tint={isMe ? 0 : 0.5} blurAmount={14}>
           {item.voice ? (
-            <VoiceNoteBubble fromMe={isMe} uri={item.mediaUrl} />
+            <VoiceNoteBubble fromMe={isMe} />
           ) : item.revealed ? (
             <Text style={[styles.msgText, { color: isMe ? 'white' : '#0f0f1a' }]}>{item.text}</Text>
           ) : (
@@ -613,14 +451,8 @@ export default function ChatDetailScreen() {
             />
           )}
         </GlassView>
-        {popId === item.id && (
-          <Animated.View pointerEvents="none" style={[styles.heartPopOverlay, { transform: [{ scale: popScale }] }]}>
-            <Heart size={44} color="#ef4444" fill="#ef4444" />
-          </Animated.View>
-        )}
         <View style={styles.msgMetaRow}>
           {isStarred && <Star size={10} color="#f59e0b" fill="#f59e0b" />}
-          {reactions[item.id] && <Text style={styles.reactionBadge}>{reactions[item.id]}</Text>}
           <Text style={styles.msgTime}>{item.time}</Text>
           {isMe && item.ticks && <Ticks status={item.ticks} />}
         </View>
@@ -709,20 +541,14 @@ export default function ChatDetailScreen() {
           </TouchableOpacity>
           <TextInput
             value={input}
-            onChangeText={handleInputChange}
+            onChangeText={setInput}
             placeholder="Type Here..."
             placeholderTextColor="#9ca3af"
             multiline
             style={styles.textInput}
           />
-          <TouchableOpacity
-            style={[styles.inputIconBtn, styles.sendBtn, isRecording && styles.recordingBtn]}
-            onPress={() => {
-              if (input.trim()) { handleSend(); return; }
-              isRecording ? stopRecordingAndSend() : startRecording();
-            }}
-          >
-            {input.trim() ? <Send size={15} color="white" /> : <Mic size={15} color={isRecording ? '#fff' : 'white'} />}
+          <TouchableOpacity style={[styles.inputIconBtn, styles.sendBtn]} onPress={handleSend}>
+            {input.trim() ? <Send size={15} color="white" /> : <Mic size={15} color="white" />}
           </TouchableOpacity>
         </GlassView>
       </View>
@@ -828,8 +654,6 @@ const styles = StyleSheet.create({
   docBubble: { paddingVertical: 8, paddingHorizontal: 10 },
   msgText: { fontSize: 14.5 },
   msgMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  heartPopOverlay: { position: 'absolute', top: '15%', left: 0, right: 0, alignItems: 'center', justifyContent: 'center', zIndex: 5 },
-  reactionBadge: { fontSize: 12 },
   msgTime: { fontSize: 10, color: '#e5e7eb' },
   voiceRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   voicePlayBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
@@ -850,7 +674,6 @@ const styles = StyleSheet.create({
   inputInner: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, padding: 8, borderRadius: 22, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
   inputIconBtn: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(15,15,26,0.08)', alignItems: 'center', justifyContent: 'center' },
   sendBtn: { backgroundColor: '#0f0f1a' },
-  recordingBtn: { backgroundColor: '#ef4444' },
   inputIcon: { fontSize: 15 },
   textInput: { flex: 1, fontSize: 14, color: '#0f0f1a', maxHeight: 100, paddingHorizontal: 4, paddingVertical: 8 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },

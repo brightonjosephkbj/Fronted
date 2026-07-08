@@ -1,89 +1,413 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Alert, ActivityIndicator, Modal, Share } from 'react-native';
+import { BlurView } from '@react-native-community/blur';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { ChevronLeft } from 'lucide-react-native';
+import { ChevronLeft, BadgeCheck, X } from 'lucide-react-native';
+import QRCode from 'react-native-qrcode-svg';
+import { useAuth } from '../context/AuthContext';
 
-const MEMBERS = [
-  { id: '1', name: 'Henry', color: '#4f46e5', role: 'owner' },
-  { id: '2', name: 'Derrick', color: '#f97316', role: 'admin' },
-  { id: '3', name: 'Rita', color: '#db2777', role: 'member' },
-];
+const INVITE_BASE_URL = 'b24meet://join';
+
+function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
+  return (
+    <View style={[styles.glassWrap, style]}>
+      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
+      {children}
+    </View>
+  );
+}
+
+const DOT_COLORS = ["#9333ea", "#f97316", "#0ea5a4", "#4f46e5", "#db2777",
+  "#16a34a", "#ea580c", "#0891b2", "#7c3aed", "#c026d3"];
+function colorForId(id) {
+  return DOT_COLORS[id % DOT_COLORS.length];
+}
 
 export default function GroupSettingsScreen() {
   const route = useRoute();
   const navigation = useNavigation();
-  const group = route.params?.group || { name: 'Group', color: '#4f46e5' };
-  const [members, setMembers] = useState(MEMBERS);
-  const [sendPerm, setSendPerm] = useState(true);
-  const [editPerm, setEditPerm] = useState(false);
+  const { apiRequest, user } = useAuth();
+  const group = route.params?.group || {};
+  const groupId = group.id;
+
+  const [loading, setLoading] = useState(true);
+  const [members, setMembers] = useState([]);
+  const [sendPerm, setSendPerm] = useState('all');
+  const [editPerm, setEditPerm] = useState('admins');
+  const [busy, setBusy] = useState(false);
+  const [inviteVisible, setInviteVisible] = useState(false);
+  const [inviteCode, setInviteCode] = useState(null);
+
+  const myRole = members.find(m => m.id === user?.id)?.role;
+  const isOwner = myRole === 'owner';
+  const canManage = myRole === 'admin' || isOwner;
+
+  const load = useCallback(async () => {
+    if (!groupId) return;
+    try {
+      const res = await apiRequest(`/groups/${groupId}/members/detailed`);
+      setMembers(res.members || []);
+      if (res.permissions) {
+        setSendPerm(res.permissions.send_perm || 'all');
+        setEditPerm(res.permissions.edit_perm || 'admins');
+      }
+    } catch (e) {
+      // leave whatever we had
+    }
+  }, [groupId, apiRequest]);
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await load();
+      setLoading(false);
+    })();
+  }, [load]);
+
+  function guardGroupId() {
+    if (!groupId) {
+      Alert.alert('Missing group ID', "This group wasn't passed with an id, so nothing here can be wired up.");
+      return false;
+    }
+    return true;
+  }
+
+  async function promote(memberId) {
+    if (!guardGroupId() || busy) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/groups/${groupId}/members/${memberId}/promote`, { method: 'POST' });
+      await load();
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't promote this member.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function demote(memberId) {
+    if (!guardGroupId() || busy) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/groups/${groupId}/members/${memberId}/demote`, { method: 'POST' });
+      await load();
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't demote this member.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function confirmRemove(member) {
+    Alert.alert(
+      `Remove ${member.username}?`,
+      'They will be removed from this group.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Remove', style: 'destructive', onPress: () => doRemove(member.id) },
+      ]
+    );
+  }
+
+  async function doRemove(memberId) {
+    if (!guardGroupId() || busy) return;
+    setBusy(true);
+    try {
+      await apiRequest(`/groups/${groupId}/members/${memberId}`, { method: 'DELETE' });
+      await load();
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't remove this member.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function updatePermission(key, value) {
+    if (!guardGroupId()) return;
+    const prevSend = sendPerm, prevEdit = editPerm;
+    if (key === 'send_perm') setSendPerm(value); else setEditPerm(value);
+    try {
+      await apiRequest(`/groups/${groupId}/permissions`, {
+        method: 'POST',
+        body: JSON.stringify({ [key]: value }),
+      });
+    } catch (e) {
+      setSendPerm(prevSend);
+      setEditPerm(prevEdit);
+      Alert.alert('Error', e.message || "Couldn't update permission.");
+    }
+  }
+
+  async function showInvite() {
+    if (!guardGroupId()) return;
+    try {
+      const res = await apiRequest(`/groups/${groupId}/invite`);
+      setInviteCode(res.invite_code);
+      setInviteVisible(true);
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't fetch the invite code.");
+    }
+  }
+
+  async function shareInvite() {
+    if (!inviteCode) return;
+    try {
+      await Share.share({
+        message: `Join ${group.name || 'my group'} on B24 Messenger: ${INVITE_BASE_URL}/${inviteCode}`,
+      });
+    } catch (e) {
+      // user cancelled or share failed silently
+    }
+  }
+
+  function confirmClearHistory() {
+    Alert.alert(
+      'Clear chat history?',
+      'This deletes every message in this group for everyone. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear', style: 'destructive', onPress: doClearHistory },
+      ]
+    );
+  }
+
+  async function doClearHistory() {
+    if (!guardGroupId()) return;
+    try {
+      await apiRequest(`/groups/${groupId}/messages`, { method: 'DELETE' });
+      Alert.alert('Cleared', 'Chat history has been cleared.');
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Only admins can clear group history.');
+    }
+  }
+
+  function confirmExit() {
+    Alert.alert(
+      'Exit group?',
+      "You'll need a new invite to rejoin.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Exit', style: 'destructive', onPress: doExit },
+      ]
+    );
+  }
+
+  async function doExit() {
+    if (!guardGroupId()) return;
+    try {
+      await apiRequest(`/groups/${groupId}/leave`, { method: 'POST' });
+      navigation.navigate('Main');
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't leave the group.");
+    }
+  }
+
+  function confirmDelete() {
+    Alert.alert(
+      'Delete group?',
+      'This permanently deletes the group and all its messages for everyone. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: doDelete },
+      ]
+    );
+  }
+
+  async function doDelete() {
+    if (!guardGroupId()) return;
+    try {
+      await apiRequest(`/groups/${groupId}`, { method: 'DELETE' });
+      navigation.navigate('Main');
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Only the owner can delete this group.');
+    }
+  }
+
+  function confirmReport() {
+    Alert.alert(
+      'Report this group?',
+      'This sends a report to B24 for review.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Report', style: 'destructive', onPress: doReport },
+      ]
+    );
+  }
+
+  async function doReport() {
+    if (!guardGroupId()) return;
+    try {
+      await apiRequest('/report/group', {
+        method: 'POST',
+        body: JSON.stringify({ group_id: groupId, reason: 'reported_from_group_settings' }),
+      });
+      Alert.alert('Reported', 'Thanks - our team will review this.');
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't send the report.");
+    }
+  }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 14 }}>
       <View style={styles.headerRow}>
-        <TouchableOpacity onPress={() => navigation.goBack()}><Text style={styles.back}><ChevronLeft size={22} color="#0f0f1a" /></Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtnWrap}>
+          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={14} />
+          <Text style={styles.back}><ChevronLeft size={22} color="#0f0f1a" /></Text>
+        </TouchableOpacity>
         <Text style={styles.title}>Group Settings</Text>
       </View>
 
-      <View style={styles.card}>
-        <View style={[styles.groupAvatar, { backgroundColor: group.color }]}>
-          <Text style={styles.groupAvatarText}>{group.name[0]}</Text>
+      <GlassCard style={styles.centerCard}>
+        <View style={[styles.groupAvatar, { backgroundColor: group.color || '#4f46e5' }]}>
+          <Text style={styles.groupAvatarText}>{group.name?.[0]?.toUpperCase() || 'G'}</Text>
         </View>
-        <Text style={styles.groupName}>{group.name}</Text>
+        <Text style={styles.groupName}>{group.name || 'Group'}</Text>
         <Text style={styles.memberCount}>{members.length} members</Text>
-      </View>
+      </GlassCard>
 
-      <Text style={styles.sectionTitle}>Members</Text>
-      <View style={styles.card}>
-        {members.map(m => (
-          <View key={m.id} style={styles.row}>
-            <View style={[styles.memberDot, { backgroundColor: m.color }]}><Text style={styles.memberDotText}>{m.name[0]}</Text></View>
-            <Text style={{ flex: 1, fontWeight: '600' }}>{m.name}</Text>
-            {m.role !== 'member' && <Text style={styles.badge}>{m.role}</Text>}
-          </View>
-        ))}
-      </View>
+      {loading && <ActivityIndicator style={{ marginTop: 16 }} />}
 
-      <Text style={styles.sectionTitle}>Permissions</Text>
-      <View style={styles.card}>
-        <View style={styles.row}>
-          <Text style={{ flex: 1 }}>Who can send messages</Text>
-          <Switch value={sendPerm} onValueChange={setSendPerm} />
+      {!loading && (
+        <>
+          <Text style={styles.sectionTitle}>Members</Text>
+          <GlassCard style={{ padding: 0 }}>
+            {members.map((m, i) => (
+              <View key={m.id} style={[styles.row, i < members.length - 1 && styles.rowBorder]}>
+                <View style={[styles.memberDot, { backgroundColor: colorForId(m.id) }]}>
+                  <Text style={styles.memberDotText}>{m.username?.[0]?.toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <Text style={styles.memberName}>{m.username}</Text>
+                  {m.verified && <BadgeCheck size={14} color={m.verified === 'cyan' ? '#0ea5e9' : '#9333ea'} />}
+                </View>
+                {m.role !== 'member' && <Text style={styles.badge}>{m.role}</Text>}
+                {canManage && m.id !== user?.id && m.role !== 'owner' && (m.role === 'member' || isOwner) && (
+                  <View style={{ flexDirection: 'row', gap: 10, marginLeft: 8 }}>
+                    {m.role === 'member' ? (
+                      <TouchableOpacity onPress={() => promote(m.id)} disabled={busy}>
+                        <Text style={styles.actionLink}>Promote</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity onPress={() => demote(m.id)} disabled={busy}>
+                        <Text style={styles.actionLink}>Demote</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity onPress={() => confirmRemove(m)} disabled={busy}>
+                      <Text style={[styles.actionLink, { color: '#ef4444' }]}>Remove</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))}
+          </GlassCard>
+
+          <Text style={styles.sectionTitle}>Permissions</Text>
+          <GlassCard style={{ padding: 0 }}>
+            <View style={[styles.row, styles.rowBorder]}>
+              <Text style={{ flex: 1 }}>Anyone can send messages</Text>
+              <Switch
+                value={sendPerm === 'all'}
+                onValueChange={v => updatePermission('send_perm', v ? 'all' : 'admins')}
+                disabled={!canManage}
+              />
+            </View>
+            <View style={styles.row}>
+              <Text style={{ flex: 1 }}>Anyone can edit group info</Text>
+              <Switch
+                value={editPerm === 'all'}
+                onValueChange={v => updatePermission('edit_perm', v ? 'all' : 'admins')}
+                disabled={!canManage}
+              />
+            </View>
+          </GlassCard>
+
+          <Text style={styles.sectionTitle}>Invite</Text>
+          <GlassCard style={{ padding: 0 }}>
+            <TouchableOpacity style={styles.row} onPress={showInvite}>
+              <Text style={styles.rowLabel}>Invite link / code</Text>
+              <Text style={styles.chevron}>›</Text>
+            </TouchableOpacity>
+          </GlassCard>
+
+          <Text style={[styles.sectionTitle, { color: '#ef4444' }]}>Danger Zone</Text>
+          <GlassCard style={{ padding: 0 }}>
+            <TouchableOpacity style={[styles.row, styles.rowBorder]} onPress={confirmClearHistory}>
+              <Text style={styles.dangerLabel}>Clear chat history</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.row, styles.rowBorder]} onPress={confirmExit}>
+              <Text style={styles.dangerLabel}>Exit group</Text>
+            </TouchableOpacity>
+            {isOwner && (
+              <TouchableOpacity style={[styles.row, styles.rowBorder]} onPress={confirmDelete}>
+                <Text style={styles.dangerLabel}>Delete group</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.row} onPress={confirmReport}>
+              <Text style={styles.dangerLabel}>Report group</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </>
+      )}
+
+      <View style={{ height: 30 }} />
+
+      <Modal visible={inviteVisible} transparent animationType="fade" onRequestClose={() => setInviteVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <GlassCard style={styles.inviteCard} blurAmount={24} tint={0.55}>
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setInviteVisible(false)}>
+              <X size={20} color="#0f0f1a" />
+            </TouchableOpacity>
+            <Text style={styles.inviteTitle}>Invite to {group.name || 'group'}</Text>
+            {inviteCode && (
+              <>
+                <View style={styles.qrWrap}>
+                  <QRCode value={`${INVITE_BASE_URL}/${inviteCode}`} size={180} />
+                </View>
+                <Text style={styles.inviteCodeText}>{inviteCode}</Text>
+                <Text style={styles.inviteLinkText} numberOfLines={1}>{`${INVITE_BASE_URL}/${inviteCode}`}</Text>
+                <TouchableOpacity style={styles.shareBtn} onPress={shareInvite}>
+                  <Text style={styles.shareBtnText}>Share invite link</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </GlassCard>
         </View>
-        <View style={styles.row}>
-          <Text style={{ flex: 1 }}>Who can edit group info</Text>
-          <Switch value={editPerm} onValueChange={setEditPerm} />
-        </View>
-      </View>
-
-      <Text style={styles.sectionTitle}>Invite</Text>
-      <View style={styles.card}>
-        <TouchableOpacity style={styles.row}><Text>Invite link</Text></TouchableOpacity>
-        <TouchableOpacity style={styles.row}><Text>QR code</Text></TouchableOpacity>
-      </View>
-
-      <Text style={[styles.sectionTitle, { color: '#ef4444' }]}>Danger Zone</Text>
-      <View style={styles.card}>
-        {['Mute notifications', 'Clear chat history', 'Exit group', 'Delete group', 'Report group'].map(l => (
-          <TouchableOpacity key={l} style={styles.row}><Text style={{ color: '#ef4444' }}>{l}</Text></TouchableOpacity>
-        ))}
-      </View>
+      </Modal>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#eef2ff' },
+  glassWrap: { overflow: 'hidden', borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)' },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  back: { fontSize: 26 },
-  title: { fontSize: 16, fontWeight: '700' },
-  card: { backgroundColor: 'white', borderRadius: 16, padding: 14, marginBottom: 14, alignItems: 'center' },
+  backBtnWrap: { width: 38, height: 38, borderRadius: 19, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)' },
+  back: { fontSize: 22, color: '#0f0f1a' },
+  title: { fontSize: 16, fontWeight: '700', color: '#0f0f1a' },
+  centerCard: { padding: 20, alignItems: 'center', gap: 6, marginBottom: 16 },
   groupAvatar: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
   groupAvatarText: { color: 'white', fontSize: 26, fontWeight: '700' },
-  groupName: { fontSize: 16, fontWeight: '800', marginTop: 8 },
-  memberCount: { fontSize: 12, color: '#9ca3af' },
-  sectionTitle: { fontSize: 11.5, fontWeight: '700', color: '#6b6b7a', marginBottom: 6, textTransform: 'uppercase' },
-  row: { flexDirection: 'row', alignItems: 'center', width: '100%', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f3' },
+  groupName: { fontSize: 16, fontWeight: '800', marginTop: 8, color: '#0f0f1a' },
+  memberCount: { fontSize: 12, color: '#6b6b7a' },
+  sectionTitle: { fontSize: 11.5, fontWeight: '700', color: '#6b6b7a', marginBottom: 6, marginTop: 16, textTransform: 'uppercase', marginLeft: 4 },
+  row: { flexDirection: 'row', alignItems: 'center', padding: 14 },
+  rowBorder: { borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.4)' },
+  rowLabel: { fontSize: 14, fontWeight: '600', color: '#0f0f1a', flex: 1 },
+  chevron: { fontSize: 18, color: '#c4c4cc' },
   memberDot: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10 },
   memberDotText: { color: 'white', fontWeight: '700' },
-  badge: { fontSize: 10.5, fontWeight: '700', color: '#4f46e5' },
+  memberName: { fontWeight: '600', color: '#0f0f1a' },
+  badge: { fontSize: 10.5, fontWeight: '700', color: '#4f46e5', marginRight: 6 },
+  actionLink: { fontSize: 12, fontWeight: '700', color: '#4f46e5' },
+  dangerLabel: { color: '#ef4444', fontWeight: '600', fontSize: 14 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(15,15,26,0.45)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  inviteCard: { width: '100%', padding: 24, alignItems: 'center', gap: 10 },
+  closeBtn: { position: 'absolute', top: 12, right: 12, padding: 4 },
+  inviteTitle: { fontSize: 15, fontWeight: '700', color: '#0f0f1a', marginBottom: 4, textAlign: 'center' },
+  qrWrap: { backgroundColor: 'white', padding: 14, borderRadius: 16, marginVertical: 6 },
+  inviteCodeText: { fontSize: 20, fontWeight: '800', letterSpacing: 2, color: '#4f46e5', marginTop: 4 },
+  inviteLinkText: { fontSize: 11.5, color: '#6b6b7a', maxWidth: '100%' },
+  shareBtn: { marginTop: 12, backgroundColor: '#4f46e5', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 14 },
+  shareBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
 });

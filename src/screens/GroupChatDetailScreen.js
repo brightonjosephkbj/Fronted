@@ -5,10 +5,16 @@ import {
 import { BlurView } from '@react-native-community/blur';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { ChevronLeft, Mic, Phone, Send, Settings, Video } from 'lucide-react-native';
+import { BadgeCheck, ChevronLeft, Mic, Phone, Send, Settings, Video } from 'lucide-react-native';
 import { io } from 'socket.io-client';
 
 const DEFAULT_WALLPAPER = require('../../assets/wallpapers/default-papercut.png');
+
+function verifiedColor(tick) {
+  if (tick === 'cyan') return '#06b6d4';
+  if (tick === 'blue') return '#3b82f6';
+  return '#a855f7';
+}
 const MESSENGER_API = 'https://Brighton233j-Messenger-back-database.hf.space';
 
 // Adjust these to match your backend's actual socket event names once
@@ -59,6 +65,7 @@ export default function GroupChatDetailScreen() {
     sender: m.sender_id === user?.id ? 'me' : (m.sender_username || String(m.sender_id)),
     senderColor: m.sender_color,
     senderName: m.sender_name || m.sender_username,
+    senderVerified: m.sender_verified,
     text: m.content,
     time: formatTime(m.timestamp),
   }), [user?.id]);
@@ -147,8 +154,15 @@ export default function GroupChatDetailScreen() {
       <View style={[styles.msgRow, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
         <View style={{ flexDirection: 'row', gap: 8, maxWidth: '82%', alignItems: 'flex-end' }}>
           {!isMe && (
-            <View style={[styles.memberAvatar, { backgroundColor: item.senderColor || '#9ca3af' }]}>
-              <Text style={styles.memberAvatarText}>{item.senderName?.[0] || '?'}</Text>
+            <View style={{ width: 26, height: 26 }}>
+              <View style={[styles.memberAvatar, { backgroundColor: item.senderColor || '#9ca3af' }]}>
+                <Text style={styles.memberAvatarText}>{item.senderName?.[0] || '?'}</Text>
+              </View>
+              {item.senderVerified && (
+                <View style={[styles.memberVerifiedBadge, { backgroundColor: verifiedColor(item.senderVerified) }]}>
+                  <BadgeCheck size={7} color="#fff" strokeWidth={3} />
+                </View>
+              )}
             </View>
           )}
           <View>
@@ -230,6 +244,7 @@ const styles = StyleSheet.create({
   headerStatus: { fontSize: 10.5, color: '#9ca3af', fontWeight: '600' },
   msgRow: { marginBottom: 12 },
   memberAvatar: { width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+  memberVerifiedBadge: { position: 'absolute', width: 10, height: 10, borderRadius: 5, top: -1, right: -1, alignItems: 'center', justifyContent: 'center', borderWidth: 1.2, borderColor: '#ffffff' },
   memberAvatarText: { color: 'white', fontSize: 11, fontWeight: '700' },
   memberName: { fontSize: 11, fontWeight: '700', marginBottom: 2, marginLeft: 2 },
   bubble: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },

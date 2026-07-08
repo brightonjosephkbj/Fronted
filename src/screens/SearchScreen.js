@@ -17,15 +17,6 @@ function GlassCard({ style, children, blurAmount = 18 }) {
   );
 }
 
-const MOCK_FRIENDS = [
-  { id: 'f1', name: 'Derrick', color: '#f97316', username: 'derrick_k' },
-  { id: 'f2', name: 'Rita', color: '#db2777', username: 'rita_k' },
-];
-
-const MOCK_MESSAGES = [
-  { id: 'm1', chatName: 'Joy', snippet: '...yeah give me a sec...', chatId: '1' },
-  { id: 'm2', chatName: 'B24 Builders', snippet: '...pushed the new build...', chatId: '4' },
-];
 
 export default function SearchScreen() {
   const navigation = useNavigation();

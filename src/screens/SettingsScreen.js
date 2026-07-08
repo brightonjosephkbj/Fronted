@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from '@react-native-community/blur';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +22,12 @@ function resolveBackground(banner) {
   return { type: 'color', value: banner?.value || '#ffffff' };
 }
 
+const BANNER_CACHE_KEY = 'b24_profile_banner';
+const WALLPAPER_CACHE_KEY = 'b24_default_wallpaper';
+const FONT_SIZE_KEY = 'b24_font_size';
+const BANNER_COLORS = ['#4f46e5', '#9333ea', '#f97316', '#0ea5a4', '#db2777', '#16a34a', '#0f172a', '#eab308'];
+const FONT_SIZES = ['Small', 'Medium', 'Large'];
+
 function verifiedColor(tick) {
   if (tick === 'cyan') return '#06b6d4';
   if (tick === 'blue') return '#3b82f6';
@@ -39,12 +46,123 @@ export default function SettingsScreen() {
   const [antiDelete, setAntiDelete] = useState(false);
   const [notifications, setNotifications] = useState(true);
   const [bannerPreviewOpen, setBannerPreviewOpen] = useState(false);
+  const [bannerPickerOpen, setBannerPickerOpen] = useState(false);
+  const [localBanner, setLocalBanner] = useState(null);
+  const [wallpaper, setWallpaper] = useState(null); // null = default Papercut
+  const [fontSize, setFontSize] = useState('Medium');
+  const [wallpaperPickerOpen, setWallpaperPickerOpen] = useState(false);
+  const [fontPickerOpen, setFontPickerOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+  const [pinSet, setPinSet] = useState(false);
 
-  const banner = resolveBackground(user?.banner);
+  const banner = resolveBackground(localBanner || user?.banner);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const cached = await AsyncStorage.getItem(BANNER_CACHE_KEY);
+        if (cached) setLocalBanner(JSON.parse(cached));
+      } catch (e) {
+        // no cached banner yet, keep using the account default
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const wp = await AsyncStorage.getItem(WALLPAPER_CACHE_KEY);
+        if (wp) setWallpaper(wp);
+      } catch (e) {}
+      try {
+        const fs = await AsyncStorage.getItem(FONT_SIZE_KEY);
+        if (fs) setFontSize(fs);
+      } catch (e) {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const pin = await AsyncStorage.getItem('appLockPin');
+        setPinSet(!!pin);
+      } catch (e) {
+        // ignore - defaults to Off
+      }
+    })();
+  }, []);
+
+  async function handleSelectBannerColor(color) {
+    const newBanner = { type: 'color', value: color };
+    setLocalBanner(newBanner);
+    setBannerPickerOpen(false);
+    try {
+      await AsyncStorage.setItem(BANNER_CACHE_KEY, JSON.stringify(newBanner));
+    } catch (e) {}
+    try {
+      await apiRequest('/profile/banner', { method: 'POST', body: JSON.stringify(newBanner) });
+    } catch (e) {
+      // backend doesn't have a banner endpoint yet - it still applies locally
+    }
+  }
 
   async function handleLogout() {
     try { await apiRequest('/auth/logout', { method: 'POST' }); } catch (e) {}
     logout();
+  }
+
+  async function handleSelectWallpaper(color) {
+    setWallpaper(color);
+    setWallpaperPickerOpen(false);
+    try {
+      if (color) await AsyncStorage.setItem(WALLPAPER_CACHE_KEY, color);
+      else await AsyncStorage.removeItem(WALLPAPER_CACHE_KEY);
+    } catch (e) {}
+  }
+
+  async function handleSelectFont(size) {
+    setFontSize(size);
+    setFontPickerOpen(false);
+    try {
+      await AsyncStorage.setItem(FONT_SIZE_KEY, size);
+    } catch (e) {}
+  }
+
+  async function handleManageStorage() {
+    let totalBytes = 0;
+    const keys = [BANNER_CACHE_KEY, WALLPAPER_CACHE_KEY, FONT_SIZE_KEY, 'b24_chats_cache', 'b24_chat_meta'];
+    for (const key of keys) {
+      try {
+        const val = await AsyncStorage.getItem(key);
+        if (val) totalBytes += val.length;
+      } catch (e) {}
+    }
+    const kb = (totalBytes / 1024).toFixed(1);
+    Alert.alert(
+      'Local storage',
+      `Cached chats, settings, and preferences on this device: ~${kb} KB.`,
+      [
+        { text: 'OK', style: 'cancel' },
+        {
+          text: 'Clear cache', style: 'destructive', onPress: async () => {
+            try {
+              await AsyncStorage.multiRemove(['b24_chats_cache', 'b24_chat_meta']);
+              Alert.alert('Cleared', 'Cached chat data removed. It will reload from the server next time you open a chat list.');
+            } catch (e) {
+              Alert.alert('Error', "Couldn't clear cache. Try again.");
+            }
+          },
+        },
+      ]
+    );
+  }
+
+  function handleNetworkUsage() {
+    Alert.alert(
+      'Network usage',
+      "This app doesn't track data usage per-feature yet — that needs work we haven't done. Nothing to show here for now."
+    );
   }
 
   return (
@@ -86,7 +204,7 @@ export default function SettingsScreen() {
 
       <Text style={styles.sectionTitle}>Profile Banner</Text>
       <GlassCard style={{ padding: 0 }}>
-        <NavRow label="Change banner" sub={banner.type === 'photo' ? 'Photo' : 'Color'} onPress={() => {}} last />
+        <NavRow label="Change banner" sub={banner.type === 'photo' ? 'Photo' : 'Color'} onPress={() => setBannerPickerOpen(true)} last />
       </GlassCard>
 
       <Text style={styles.sectionTitle}>Privacy</Text>
@@ -100,6 +218,16 @@ export default function SettingsScreen() {
         <ToggleRow label="Anti-delete messages" value={antiDelete} onChange={setAntiDelete} last />
       </GlassCard>
 
+      <Text style={styles.sectionTitle}>Security</Text>
+      <GlassCard style={{ padding: 0 }}>
+        <NavRow
+          label="App Lock"
+          sub={pinSet ? 'On' : 'Off'}
+          onPress={() => navigation.navigate('SetPin')}
+          last
+        />
+      </GlassCard>
+
       <Text style={styles.sectionTitle}>Notifications</Text>
       <GlassCard style={{ padding: 0 }}>
         <ToggleRow label="Message notifications" value={notifications} onChange={setNotifications} last />
@@ -107,21 +235,21 @@ export default function SettingsScreen() {
 
       <Text style={styles.sectionTitle}>Chats</Text>
       <GlassCard style={{ padding: 0 }}>
-        <NavRow label="Default wallpaper" sub="Papercut" onPress={() => {}} />
-        <NavRow label="Font size" sub="Medium" onPress={() => {}} />
+        <NavRow label="Default wallpaper" sub={wallpaper ? 'Custom color' : 'Papercut (default)'} onPress={() => setWallpaperPickerOpen(true)} />
+        <NavRow label="Font size" sub={fontSize} onPress={() => setFontPickerOpen(true)} />
         <NavRow label="Chat backup" sub="Never" onPress={() => {}} last />
       </GlassCard>
 
       <Text style={styles.sectionTitle}>Storage & Data</Text>
       <GlassCard style={{ padding: 0 }}>
-        <NavRow label="Manage storage" onPress={() => {}} />
-        <NavRow label="Network usage" onPress={() => {}} last />
+        <NavRow label="Manage storage" onPress={handleManageStorage} />
+        <NavRow label="Network usage" onPress={handleNetworkUsage} last />
       </GlassCard>
 
       <Text style={styles.sectionTitle}>Help & About</Text>
       <GlassCard style={{ padding: 0 }}>
-        <NavRow label="Help center" onPress={() => {}} />
-        <NavRow label="Terms & Privacy Policy" onPress={() => {}} />
+        <NavRow label="Help center" onPress={() => setHelpOpen(true)} />
+        <NavRow label="Terms & Privacy Policy" onPress={() => setTermsOpen(true)} />
         <Row label="App version" sub="1.0.0" last />
       </GlassCard>
 
@@ -146,6 +274,109 @@ export default function SettingsScreen() {
             <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={20} />
             <X size={20} color="#0f0f1a" />
           </TouchableOpacity>
+        </View>
+      </Modal>
+
+      <Modal visible={bannerPickerOpen} transparent animationType="fade" onRequestClose={() => setBannerPickerOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={styles.pickerCard} tint={0.85}>
+            <Text style={styles.pickerTitle}>Choose a banner color</Text>
+            <View style={styles.pickerGrid}>
+              {BANNER_COLORS.map(color => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => handleSelectBannerColor(color)}
+                  style={[styles.pickerSwatch, { backgroundColor: color }, banner.value === color && styles.pickerSwatchActive]}
+                />
+              ))}
+            </View>
+            <TouchableOpacity onPress={() => setBannerPickerOpen(false)} style={styles.pickerCancel}>
+              <Text style={styles.pickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal visible={wallpaperPickerOpen} transparent animationType="fade" onRequestClose={() => setWallpaperPickerOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={styles.pickerCard} tint={0.85}>
+            <Text style={styles.pickerTitle}>Default wallpaper</Text>
+            <View style={styles.pickerGrid}>
+              <TouchableOpacity
+                onPress={() => handleSelectWallpaper(null)}
+                style={[styles.pickerSwatch, { backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }, !wallpaper && styles.pickerSwatchActive]}
+              >
+                <Text style={{ fontSize: 9, fontWeight: '700', color: '#6b6b7a' }}>Default</Text>
+              </TouchableOpacity>
+              {BANNER_COLORS.map(color => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => handleSelectWallpaper(color)}
+                  style={[styles.pickerSwatch, { backgroundColor: color }, wallpaper === color && styles.pickerSwatchActive]}
+                />
+              ))}
+            </View>
+            <TouchableOpacity onPress={() => setWallpaperPickerOpen(false)} style={styles.pickerCancel}>
+              <Text style={styles.pickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal visible={fontPickerOpen} transparent animationType="fade" onRequestClose={() => setFontPickerOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={styles.pickerCard} tint={0.85}>
+            <Text style={styles.pickerTitle}>Font size</Text>
+            {FONT_SIZES.map((size, i) => (
+              <TouchableOpacity
+                key={size}
+                style={[styles.row, i < FONT_SIZES.length - 1 && styles.rowBorder, { width: '100%' }]}
+                onPress={() => handleSelectFont(size)}
+              >
+                <Text style={[styles.rowLabel, { flex: 1, fontSize: size === 'Small' ? 12 : size === 'Large' ? 17 : 14 }]}>{size}</Text>
+                {fontSize === size && <Text style={{ color: '#4f46e5', fontWeight: '800' }}>✓</Text>}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity onPress={() => setFontPickerOpen(false)} style={styles.pickerCancel}>
+              <Text style={styles.pickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal visible={helpOpen} transparent animationType="fade" onRequestClose={() => setHelpOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={[styles.pickerCard, { alignItems: 'stretch', maxHeight: '75%' }]} tint={0.9}>
+            <Text style={styles.pickerTitle}>Help center</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              <Text style={styles.helpQ}>How do I add a friend?</Text>
+              <Text style={styles.helpA}>Tap the + button on the main screen, then "Add Friend", and search by username.</Text>
+              <Text style={styles.helpQ}>How do I start a group?</Text>
+              <Text style={styles.helpA}>Tap the + button and choose "Create Group", then pick members.</Text>
+              <Text style={styles.helpQ}>Something's not working — what do I do?</Text>
+              <Text style={styles.helpA}>Reach out to us directly for now — in-app support requests are coming soon.</Text>
+            </ScrollView>
+            <TouchableOpacity onPress={() => setHelpOpen(false)} style={styles.pickerCancel}>
+              <Text style={styles.pickerCancelText}>Close</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal visible={termsOpen} transparent animationType="fade" onRequestClose={() => setTermsOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={[styles.pickerCard, { alignItems: 'stretch', maxHeight: '75%' }]} tint={0.9}>
+            <Text style={styles.pickerTitle}>Terms & Privacy Policy</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              <Text style={styles.helpA}>
+                Placeholder text — replace this with your actual Terms of Service and Privacy Policy before shipping to real users.
+                {'\n\n'}B24 stores your messages, profile info, and status updates to provide the service. We don't sell your data to third parties.
+              </Text>
+            </ScrollView>
+            <TouchableOpacity onPress={() => setTermsOpen(false)} style={styles.pickerCancel}>
+              <Text style={styles.pickerCancelText}>Close</Text>
+            </TouchableOpacity>
+          </GlassCard>
         </View>
       </Modal>
     </ScrollView>
@@ -208,4 +439,14 @@ const styles = StyleSheet.create({
   dangerText: { color: '#ef4444', fontWeight: '600' },
   bannerModal: { flex: 1, alignItems: 'flex-end' },
   bannerCloseBtn: { width: 40, height: 40, borderRadius: 20, overflow: 'hidden', alignItems: 'center', justifyContent: 'center', margin: 16, marginTop: 50, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)' },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  pickerCard: { width: '100%', maxWidth: 320, padding: 20, borderRadius: 24, alignItems: 'center' },
+  pickerTitle: { fontSize: 15, fontWeight: '800', color: '#0f0f1a', marginBottom: 16 },
+  pickerGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 14 },
+  pickerSwatch: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: 'transparent' },
+  pickerSwatchActive: { borderColor: '#0f0f1a' },
+  pickerCancel: { marginTop: 18 },
+  pickerCancelText: { color: '#6b6b7a', fontWeight: '700', fontSize: 13.5 },
+  helpQ: { fontSize: 13.5, fontWeight: '700', color: '#0f0f1a', marginTop: 12 },
+  helpA: { fontSize: 12.5, color: '#6b6b7a', marginTop: 4, lineHeight: 18 },
 });

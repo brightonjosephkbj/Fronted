@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
+import { BlurView } from '@react-native-community/blur';
 import { Camera, Check, ChevronLeft } from 'lucide-react-native';
 
 const CONFIG = {
@@ -33,6 +34,16 @@ const FRIENDS = [
   { id: '3', name: 'Kato', handle: 'kato@b24.me', color: '#3b82f6' },
   { id: '4', name: 'Mercy', handle: 'mercy@b24.me', color: '#16a34a' },
 ];
+
+function GlassCard({ style, children }) {
+  return (
+    <View style={[styles.glassWrap, style]}>
+      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={18} />
+      <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(255,255,255,0.35)' }]} />
+      {children}
+    </View>
+  );
+}
 
 export default function CreateNewScreen() {
   const route = useRoute();
@@ -108,14 +119,14 @@ export default function CreateNewScreen() {
           <Text style={styles.title}>{cfg.title}</Text>
         </View>
 
-        <View style={styles.card}>
+        <GlassCard style={styles.card}>
           <View style={[styles.avatar, { backgroundColor: cfg.color }]}>
             {name.trim() ? <Text style={styles.avatarText}>{name.trim()[0].toUpperCase()}</Text> : <Camera size={26} color="white" />}
           </View>
           <Text style={styles.avatarHint}>Tap to add photo</Text>
-        </View>
+        </GlassCard>
 
-        <View style={styles.card}>
+        <GlassCard style={styles.card}>
           <TextInput
             value={name}
             onChangeText={setName}
@@ -133,7 +144,7 @@ export default function CreateNewScreen() {
             style={[styles.input, { minHeight: 60 }]}
             multiline
           />
-        </View>
+        </GlassCard>
 
         <TouchableOpacity
           style={[styles.createBtn, { backgroundColor: name.trim() ? cfg.color : '#c7c7d1' }]}
@@ -157,13 +168,15 @@ export default function CreateNewScreen() {
       </View>
 
       <View style={{ paddingHorizontal: 14 }}>
-        <TextInput
-          value={search}
-          onChangeText={setSearch}
-          placeholder="Search friends..."
-          placeholderTextColor="#9ca3af"
-          style={styles.searchInput}
-        />
+        <GlassCard style={{ padding: 0 }}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search friends..."
+            placeholderTextColor="#9ca3af"
+            style={styles.searchInput}
+          />
+        </GlassCard>
       </View>
 
       <FlatList
@@ -173,17 +186,19 @@ export default function CreateNewScreen() {
         renderItem={({ item }) => {
           const isSelected = selected.includes(item.id);
           return (
-            <TouchableOpacity style={styles.friendRow} onPress={() => toggleFriend(item.id)}>
-              <View style={[styles.friendDot, { backgroundColor: item.color }]}>
-                <Text style={styles.friendDotText}>{item.name[0]}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.friendName}>{item.name}</Text>
-                <Text style={styles.friendHandle}>{item.handle}</Text>
-              </View>
-              <View style={[styles.checkbox, isSelected && { backgroundColor: cfg.color, borderColor: cfg.color }]}>
-                {isSelected && <Text style={styles.checkmark}><Check size={13} color="#0f0f1a" /></Text>}
-              </View>
+            <TouchableOpacity onPress={() => toggleFriend(item.id)}>
+              <GlassCard style={styles.friendRow}>
+                <View style={[styles.friendDot, { backgroundColor: item.color }]}>
+                  <Text style={styles.friendDotText}>{item.name[0]}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.friendName}>{item.name}</Text>
+                  <Text style={styles.friendHandle}>{item.handle}</Text>
+                </View>
+                <View style={[styles.checkbox, isSelected && { backgroundColor: cfg.color, borderColor: cfg.color }]}>
+                  {isSelected && <Check size={13} color="#0f0f1a" />}
+                </View>
+              </GlassCard>
             </TouchableOpacity>
           );
         }}
@@ -205,11 +220,12 @@ export default function CreateNewScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#eef2ff' },
+  glassWrap: { overflow: 'hidden', borderRadius: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)' },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
   back: { fontSize: 26 },
   title: { fontSize: 16, fontWeight: '700' },
   skip: { fontSize: 14, fontWeight: '600', color: '#4f46e5' },
-  card: { backgroundColor: 'white', borderRadius: 16, padding: 14, marginBottom: 14, alignItems: 'center' },
+  card: { padding: 14, marginBottom: 14, alignItems: 'center' },
   avatar: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: 'white', fontSize: 26, fontWeight: '700' },
   avatarHint: { fontSize: 11.5, color: '#9ca3af', marginTop: 8 },
@@ -218,12 +234,11 @@ const styles = StyleSheet.create({
   createBtn: { borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   createBtnText: { color: 'white', fontWeight: '700', fontSize: 15 },
   searchInput: {
-    backgroundColor: 'white', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
-    fontSize: 14, marginBottom: 4,
+    paddingHorizontal: 14, paddingVertical: 10, fontSize: 14,
   },
   friendRow: {
-    flexDirection: 'row', alignItems: 'center', backgroundColor: 'white',
-    borderRadius: 14, padding: 12, marginBottom: 8, gap: 10,
+    flexDirection: 'row', alignItems: 'center',
+    padding: 12, marginBottom: 8, gap: 10,
   },
   friendDot: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
   friendDotText: { color: 'white', fontWeight: '700' },

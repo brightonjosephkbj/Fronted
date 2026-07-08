@@ -477,45 +477,8 @@ export default function MainScreen() {
         );
         break;
       case 'clear':
-        Alert.alert(
-          'Clear chat?',
-          'This clears the chat history on your device only. The other person still has their copy.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Clear', style: 'destructive', onPress: async () => {
-                try {
-                  const key = `b24_msg_meta_${chat.id}`;
-                  const raw = await AsyncStorage.getItem(key);
-                  const existing = raw ? JSON.parse(raw) : {};
-                  const next = { ...existing, clearedAt: Math.floor(Date.now() / 1000) };
-                  await AsyncStorage.setItem(key, JSON.stringify(next));
-                } catch (e) {
-                  Alert.alert('Error', "Couldn't clear this chat. Try again.");
-                }
-              },
-            },
-          ]
-        );
-        break;
       case 'delete':
-        Alert.alert(
-          `Delete ${chat.name}?`,
-          'This permanently deletes the chat history for both of you. This cannot be undone.',
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Delete', style: 'destructive', onPress: async () => {
-                try {
-                  await apiRequest(`/messages/${parseInt(chat.id, 10)}`, { method: 'DELETE' });
-                  updateMeta(chat.id, { archived: true });
-                } catch (e) {
-                  Alert.alert('Error', "Couldn't delete this chat. Try again.");
-                }
-              },
-            },
-          ]
-        );
+        Alert.alert('Coming soon', "This needs a quick server call we haven't wired up yet — on the list next.");
         break;
       default:
         break;
