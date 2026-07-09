@@ -30,9 +30,6 @@ jobs:
       - name: Prebuild (generate native android project)
         run: npx expo prebuild --platform android --clean
 
-      - name: Configure release signing
-        run: python3 scripts/patch_gradle.py
-
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
@@ -41,12 +38,12 @@ jobs:
 
       - name: Build release APK
         working-directory: android
-        env:
-          B24_UPLOAD_STORE_FILE: ${{ github.workspace }}/b24-release.keystore
-          B24_UPLOAD_STORE_PASSWORD: ${{ secrets.B24_KEYSTORE_PASSWORD }}
-          B24_UPLOAD_KEY_ALIAS: ${{ secrets.B24_KEY_ALIAS }}
-          B24_UPLOAD_KEY_PASSWORD: ${{ secrets.B24_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease
+        run: |
+          ./gradlew assembleRelease \
+            -PB24_UPLOAD_STORE_FILE=${{ github.workspace }}/b24-release.keystore \
+            -PB24_UPLOAD_STORE_PASSWORD=${{ secrets.B24_KEYSTORE_PASSWORD }} \
+            -PB24_UPLOAD_KEY_ALIAS=${{ secrets.B24_KEY_ALIAS }} \
+            -PB24_UPLOAD_KEY_PASSWORD=${{ secrets.B24_KEY_PASSWORD }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
