@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1c1b1f"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -18,7 +13,7 @@
       "package": "com.b24.messenger",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1c1b1f"
+        "backgroundColor": "#e7f1fa"
       },
       "permissions": [
         "android.permission.INTERNET",
@@ -33,14 +28,25 @@
         "android.permission.BLUETOOTH",
         "android.permission.WAKE_LOCK",
         "android.permission.ACCESS_NETWORK_STATE",
-        "android.permission.SYSTEM_ALERT_WINDOW"
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.REQUEST_INSTALL_PACKAGES"
       ]
     },
     "plugins": [
       "expo-status-bar",
       "./plugins/withWebRTC.js",
+      "./plugins/withReleaseSigning.js",
       "expo-image-picker",
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#e7f1fa"
+        }
+      ]
     ],
     "scheme": "b24meet"
   }
