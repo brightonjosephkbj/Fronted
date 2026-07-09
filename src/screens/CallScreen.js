@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, FlatList, Modal } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { BlurView } from '@react-native-community/blur';
-import { Mic, MicOff, Smile, Video, VideoOff, Pause, Play, Phone, PhoneOff } from 'lucide-react-native';
+import { Mic, MicOff, Smile, Video, VideoOff, Pause, Play, Phone, PhoneOff, Plus, X, PhoneIncoming, PhoneOutgoing, PhoneMissed } from 'lucide-react-native';
 import {
   mediaDevices,
   RTCPeerConnection,
@@ -31,7 +31,7 @@ export default function CallScreen() {
   const route = useRoute();
   const navigation = useNavigation();
   const { socket } = useSocket();
-  const { token, apiRequest } = useAuth();
+  const { token, user, apiRequest } = useAuth();
 
   const contact = route.params?.contact || { name: 'Unknown', color: '#6366f1' };
   const isIncoming = !!route.params?.incoming;
@@ -46,6 +46,68 @@ export default function CallScreen() {
   const [reactionOpen, setReactionOpen] = useState(false);
   const [localStream, setLocalStream] = useState(null);
   const [remoteStream, setRemoteStream] = useState(null);
+
+  // --- Call log / Add Call (used only when this screen is opened with no
+  // contact — i.e. as a browsing screen rather than an active call) ---
+  const isBrowsing = !route.params?.contact;
+  const [callLog, setCallLog] = useState([]);
+  const [logLoading, setLogLoading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [friendsLoading, setFriendsLoading] = useState(false);
+  const friendNameById = friends.reduce((map, f) => { map[f.id] = f.username; return map; }, {});
+
+  useEffect(() => {
+    if (!isBrowsing) return;
+    (async () => {
+      setLogLoading(true);
+      setFriendsLoading(true);
+      try {
+        const [historyData, friendsData] = await Promise.all([
+          apiRequest('/calls/history'),
+          apiRequest('/friends/list'),
+        ]);
+        setCallLog(Array.isArray(historyData?.calls) ? historyData.calls : []);
+        setFriends(Array.isArray(friendsData?.friends) ? friendsData.friends : []);
+      } catch (e) {
+        setCallLog([]);
+        setFriends([]);
+      } finally {
+        setLogLoading(false);
+        setFriendsLoading(false);
+      }
+    })();
+  }, [isBrowsing]);
+
+  function openPicker() {
+    setPickerOpen(true);
+  }
+
+  function startCall(friend, type) {
+    setPickerOpen(false);
+    const contact = { id: friend.id, name: friend.username, color: '#6366f1' };
+    // push (not navigate) guarantees a fresh mount of this screen, which is
+    // required — the outgoing-call effect below only reads route.params once,
+    // at mount time.
+    (navigation.push || navigation.navigate).call(navigation, 'Call', {
+      contact,
+      callee_id: friend.id,
+      call_type: type,
+    });
+  }
+
+  function redial(call) {
+    const otherId = call.caller_id === user?.id ? call.callee_id : call.caller_id;
+    const otherName = friendNameById[otherId] || 'Unknown';
+    startCall({ id: otherId, username: otherName }, call.call_type || 'voice');
+  }
+
+  function formatDuration(totalSeconds) {
+    if (!totalSeconds && totalSeconds !== 0) return '';
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
 
   const timerRef = useRef(null);
   const pulseAnim = useRef(new Animated.Value(0.85)).current;
@@ -110,7 +172,7 @@ export default function CallScreen() {
   }, []);
 
   useEffect(() => {
-    if (!socket || isIncoming) return;
+    if (!socket || isIncoming || isBrowsing) return;
     let cancelled = false;
 
     (async () => {
@@ -317,6 +379,93 @@ export default function CallScreen() {
     });
   }
 
+  if (isBrowsing) {
+    return (
+      <View style={styles.screen}>
+        <View style={styles.logHeaderRow}>
+          <Text style={styles.logTitle}>Calls</Text>
+          <TouchableOpacity style={styles.addCallBtn} onPress={openPicker}>
+            <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={20} />
+            <Plus size={20} color="#4338ca" />
+          </TouchableOpacity>
+        </View>
+
+        <FlatList
+          data={callLog}
+          keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={{ padding: 14, paddingTop: 4 }}
+          ListEmptyComponent={!logLoading && (
+            <Text style={styles.logEmptyText}>No calls yet. Tap + to call a friend.</Text>
+          )}
+          renderItem={({ item }) => {
+            const outgoing = item.caller_id === user?.id;
+            const otherId = outgoing ? item.callee_id : item.caller_id;
+            const otherName = friendNameById[otherId] || 'Unknown';
+            const missed = item.status === 'missed' || item.status === 'declined';
+            const DirIcon = missed ? PhoneMissed : (outgoing ? PhoneOutgoing : PhoneIncoming);
+            return (
+              <TouchableOpacity style={styles.logRow} onPress={() => redial(item)}>
+                <View style={[styles.logAvatar, { backgroundColor: '#6366f1' }]}>
+                  <Text style={styles.logAvatarText}>{otherName[0]?.toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.logName}>{otherName}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                    <DirIcon size={12} color={missed ? '#ef4444' : '#9ca3af'} />
+                    <Text style={[styles.logSubtext, missed && { color: '#ef4444' }]}>
+                      {item.call_type === 'video' ? 'Video' : 'Voice'}
+                      {item.duration ? ` · ${formatDuration(item.duration)}` : missed ? ' · Missed' : ''}
+                    </Text>
+                  </View>
+                </View>
+                {item.call_type === 'video' ? <Video size={18} color="#9ca3af" /> : <Phone size={18} color="#9ca3af" />}
+              </TouchableOpacity>
+            );
+          }}
+        />
+
+        <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
+          <View style={styles.pickerBackdrop}>
+            <View style={styles.pickerCard}>
+              <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={25} />
+              <View style={styles.pickerHeaderRow}>
+                <Text style={styles.pickerTitle}>Call a friend</Text>
+                <TouchableOpacity onPress={() => setPickerOpen(false)}>
+                  <X size={20} color="#4b5563" />
+                </TouchableOpacity>
+              </View>
+              {friendsLoading ? (
+                <Text style={styles.logEmptyText}>Loading...</Text>
+              ) : friends.length === 0 ? (
+                <Text style={styles.logEmptyText}>Add some friends first.</Text>
+              ) : (
+                <FlatList
+                  data={friends}
+                  keyExtractor={(item) => String(item.id)}
+                  style={{ maxHeight: 340 }}
+                  renderItem={({ item }) => (
+                    <View style={styles.pickerRow}>
+                      <View style={[styles.logAvatar, { backgroundColor: '#6366f1' }]}>
+                        <Text style={styles.logAvatarText}>{item.username?.[0]?.toUpperCase()}</Text>
+                      </View>
+                      <Text style={[styles.logName, { flex: 1, marginLeft: 12 }]}>{item.username}</Text>
+                      <TouchableOpacity style={styles.pickerCallBtn} onPress={() => startCall(item, 'voice')}>
+                        <Phone size={16} color="#4338ca" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.pickerCallBtn} onPress={() => startCall(item, 'video')}>
+                        <Video size={16} color="#4338ca" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                />
+              )}
+            </View>
+          </View>
+        </Modal>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.screen}>
       <View style={{ alignItems: 'center', paddingTop: 40 }}>
@@ -459,4 +608,23 @@ const styles = StyleSheet.create({
   controlBtnActive: { backgroundColor: 'white' },
   controlBtnDanger: { backgroundColor: '#ef4444' },
   controlLabel: { color: '#4b5563', fontSize: 10.5, fontWeight: '600' },
+  logHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 50, paddingBottom: 10 },
+  logTitle: { fontSize: 20, fontWeight: '800', color: '#1f2937' },
+  addCallBtn: {
+    width: 38, height: 38, borderRadius: 19, overflow: 'hidden',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)',
+  },
+  logEmptyText: { textAlign: 'center', color: '#9ca3af', fontSize: 13, marginTop: 40 },
+  logRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.06)' },
+  logAvatar: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  logAvatarText: { color: 'white', fontSize: 16, fontWeight: '700' },
+  logName: { fontSize: 14.5, fontWeight: '700', color: '#1f2937' },
+  logSubtext: { fontSize: 12, color: '#9ca3af' },
+  pickerBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  pickerCard: { width: '100%', maxWidth: 340, borderRadius: 22, overflow: 'hidden', padding: 18, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)' },
+  pickerHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+  pickerTitle: { fontSize: 15, fontWeight: '800', color: '#1f2937' },
+  pickerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, gap: 8 },
+  pickerCallBtn: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(99,102,241,0.12)' },
 });

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 import { useNotifications } from './NotificationContext';
@@ -11,6 +11,7 @@ export function SocketProvider({ children }) {
   const { token, user, updateUserPoints } = useAuth();
   const { showBanner, triggerLevelUp } = useNotifications();
   const socketRef = useRef(null);
+  const [socketInstance, setSocketInstance] = useState(null);
   const prevLevelRef = useRef(user?.level);
 
   useEffect(() => {
@@ -18,6 +19,7 @@ export function SocketProvider({ children }) {
 
     const socket = io(MESSENGER_API, { query: { token }, transports: ['websocket'] });
     socketRef.current = socket;
+    setSocketInstance(socket); // ref alone doesn't re-render consumers — this does
 
     // 1:1 message from any chat you're not currently viewing
     socket.on('new_message', (data) => {
@@ -78,11 +80,14 @@ export function SocketProvider({ children }) {
       }
     });
 
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+      setSocketInstance(null);
+    };
   }, [token, user?.id]);
 
   return (
-    <SocketContext.Provider value={{ socket: socketRef.current }}>
+    <SocketContext.Provider value={{ socket: socketInstance }}>
       {children}
     </SocketContext.Provider>
   );

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AuthContext = createContext(null);
 
-const API_BASE = 'https://Brighton233j-Messenger-back-database.hf.space';
+export const API_BASE = 'https://Brighton233j-Messenger-back-database.hf.space';
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);

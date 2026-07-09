@@ -6,6 +6,7 @@ import {
 import { BlurView } from '@react-native-community/blur';
 import Video from 'react-native-video';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { BadgeCheck } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -22,6 +23,7 @@ const FAB_ITEMS = [
 ];
 
 const COLOR_PRESETS = ['#4f46e5', '#9333ea', '#db2777', '#f97316', '#16a34a', '#0891b2', '#c026d3', '#ef4444'];
+const TOP_BAR_BG_KEY = 'b24_top_bar_bg';
 
 const CHATS_CACHE_KEY = 'b24_chats_cache';
 const CHAT_META_KEY = 'b24_chat_meta';
@@ -104,7 +106,7 @@ function ChatRow({ chat, onPress, onLongPress, onOpenProfile, onArchive, onMute 
   const translateX = useState(new Animated.Value(0))[0];
   const SWIPE_THRESHOLD = 60;
   const panResponder = PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10,
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
     onPanResponderMove: (_, g) => translateX.setValue(Math.max(-90, Math.min(90, g.dx))),
     onPanResponderRelease: (_, g) => {
       if (g.dx > SWIPE_THRESHOLD) onArchive && onArchive(chat);
@@ -204,7 +206,7 @@ function TopBarCelebration({ level }) {
 
 export default function MainScreen() {
   const { user, apiRequest } = useAuth();
-  const { banner, slideAnim, setActiveChatId } = useNotifications();
+  const { banner, slideAnim, setActiveChatId, showBanner } = useNotifications();
   const navigation = useNavigation();
   const [chats, setChats] = useState([]);
   const [chatsLoaded, setChatsLoaded] = useState(false);
@@ -217,6 +219,8 @@ export default function MainScreen() {
   const [celebrating, setCelebrating] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [colorPickerChat, setColorPickerChat] = useState(null);
+  const [topBarBg, setTopBarBg] = useState(null);
+  const [topBarPickerOpen, setTopBarPickerOpen] = useState(false);
   const [pinPrompt, setPinPrompt] = useState(null); // chat pending PIN entry
   const [pinEntry, setPinEntry] = useState('');
   const [pinError, setPinError] = useState(false);
@@ -232,6 +236,78 @@ export default function MainScreen() {
   useEffect(() => {
     setActiveChatId(null);
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(TOP_BAR_BG_KEY);
+        if (raw) setTopBarBg(JSON.parse(raw));
+      } catch (e) {
+        // fall back to the default color
+      }
+    })();
+  }, []);
+
+  async function saveTopBarBg(next) {
+    setTopBarBg(next);
+    setTopBarPickerOpen(false);
+    try {
+      if (next) await AsyncStorage.setItem(TOP_BAR_BG_KEY, JSON.stringify(next));
+      else await AsyncStorage.removeItem(TOP_BAR_BG_KEY);
+    } catch (e) {
+      Alert.alert('Error', "Couldn't save your top bar background. Try again.");
+    }
+  }
+
+  async function pickTopBarPhoto() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to set a background image.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets?.length) return;
+    saveTopBarBg({ type: 'photo', value: result.assets[0].uri });
+  }
+
+  async function pickTopBarVideo() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to set a background video.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], quality: 0.8 });
+    if (result.canceled || !result.assets?.length) return;
+    saveTopBarBg({ type: 'video', value: result.assets[0].uri });
+  }
+
+  // Poll for an active announcement and slide it into the top bar banner,
+  // same slide-in/auto-dismiss mechanism already used for online/message alerts.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function checkAnnouncement() {
+      try {
+        const data = await apiRequest('/announcements/active');
+        if (!cancelled && data?.announcement) {
+          showBanner({
+            type: 'announcement',
+            title: data.announcement.title,
+            subtitle: data.announcement.body || undefined,
+          });
+        }
+      } catch (e) {
+        // offline or backend unreachable - skip this cycle silently
+      }
+    }
+
+    checkAnnouncement();
+    const intervalId = setInterval(checkAnnouncement, 10 * 60 * 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [apiRequest, showBanner]);
 
   // Load cached chats + local per-chat meta (pin/favourite/color/archive/lock/unread override)
   useEffect(() => {
@@ -329,7 +405,7 @@ export default function MainScreen() {
   const archivedCount = enrichedChats.filter(c => c.archived).length;
 
   const openChat = useCallback((chat) => {
-    if (chat.locked && !showArchived) {
+    if (chat.locked) {
       setPinPrompt(chat);
       setPinEntry('');
       setPinError(false);
@@ -339,7 +415,7 @@ export default function MainScreen() {
       updateMeta(chat.id, { unread: false });
     }
     navigation.navigate(chat.isGroup ? 'GroupChatDetail' : 'ChatDetail', { chat });
-  }, [navigation, chatMeta, showArchived]);
+  }, [navigation, chatMeta]);
 
   async function submitPin(pin) {
     try {
@@ -543,11 +619,11 @@ export default function MainScreen() {
     <View style={styles.screen}>
       {/* top bar */}
       <Animated.View style={[styles.topBarWrap, { transform: [{ rotate: spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}>
-        <TopBarBackground bg={user?.topBar} />
+        <TopBarBackground bg={topBarBg || user?.topBar} />
         <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={12} />
 
         {!celebrating && !banner && (
-          <TouchableOpacity activeOpacity={0.9} onLongPress={() => {}} style={styles.topBarInner}>
+          <TouchableOpacity activeOpacity={0.9} onLongPress={() => setTopBarPickerOpen(true)} style={styles.topBarInner}>
             <TouchableOpacity style={{ flex: 1 }} onPress={() => navigation.navigate('Points')}>
               <Text style={styles.username}>{user?.username || 'you'}</Text>
               <Text style={styles.pointsText}>Level {level} · {points}/{pointsTarget} pts</Text>
@@ -565,7 +641,7 @@ export default function MainScreen() {
 
         {!celebrating && banner && (
           <Animated.View style={[styles.bannerRow, { transform: [{ translateY: slideAnim }] }]} onStartShouldSetResponder={() => true} onResponderRelease={() => banner.onPress && banner.onPress(navigation)}>
-            <View style={[styles.bannerDot, { backgroundColor: banner.type === 'online' ? '#22c55e' : '#4f46e5' }]} />
+            <View style={[styles.bannerDot, { backgroundColor: banner.type === 'online' ? '#22c55e' : banner.type === 'announcement' ? '#f59e0b' : '#4f46e5' }]} />
             <View style={{ flex: 1 }}>
               <Text style={styles.bannerTitle} numberOfLines={1}>{banner.title}</Text>
               {banner.subtitle && <Text style={styles.bannerSubtitle} numberOfLines={1}>{banner.subtitle}</Text>}
@@ -713,6 +789,35 @@ export default function MainScreen() {
         </Pressable>
       </Modal>
 
+      {/* top bar background picker */}
+      <Modal visible={topBarPickerOpen} transparent animationType="fade" onRequestClose={() => setTopBarPickerOpen(false)}>
+        <Pressable style={styles.sheetBackdrop} onPress={() => setTopBarPickerOpen(false)}>
+          <GlassView style={styles.colorSheet} blurAmount={24}>
+            <Text style={styles.sheetHeaderText}>Top bar background</Text>
+            <TouchableOpacity style={styles.topBarOptionBtn} onPress={pickTopBarPhoto}>
+              <Text style={styles.topBarOptionText}>Choose a photo</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.topBarOptionBtn} onPress={pickTopBarVideo}>
+              <Text style={styles.topBarOptionText}>Choose a video</Text>
+            </TouchableOpacity>
+            <View style={styles.colorGrid}>
+              {COLOR_PRESETS.map(c => (
+                <TouchableOpacity
+                  key={c}
+                  style={[styles.colorSwatch, { backgroundColor: c }]}
+                  onPress={() => saveTopBarBg({ type: 'color', value: c })}
+                />
+              ))}
+            </View>
+            {topBarBg && (
+              <TouchableOpacity style={styles.topBarOptionBtn} onPress={() => saveTopBarBg(null)}>
+                <Text style={[styles.topBarOptionText, { color: '#ef4444' }]}>Reset to default</Text>
+              </TouchableOpacity>
+            )}
+          </GlassView>
+        </Pressable>
+      </Modal>
+
       {/* per-chat PIN prompt */}
       <Modal visible={!!pinPrompt} transparent animationType="fade" onRequestClose={() => setPinPrompt(null)}>
         <Pressable style={styles.profileBackdrop} onPress={() => setPinPrompt(null)}>
@@ -820,6 +925,8 @@ const styles = StyleSheet.create({
   colorSwatch: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: 'rgba(255,255,255,0.7)' },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 20, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.4)' },
   sheetHeaderText: { fontWeight: '700', fontSize: 15 },
+  topBarOptionBtn: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.4)' },
+  topBarOptionText: { fontSize: 14, fontWeight: '600', color: '#0f0f1a' },
   sheetItem: { paddingVertical: 13, paddingHorizontal: 20 },
   sheetItemText: { fontSize: 14.5, color: '#0f0f1a' },
   profileBackdrop: { flex: 1, alignItems: 'center', justifyContent: 'center' },

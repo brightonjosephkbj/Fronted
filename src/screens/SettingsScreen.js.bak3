@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal, Alert, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from '@react-native-community/blur';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -55,9 +55,6 @@ export default function SettingsScreen() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
   const [pinSet, setPinSet] = useState(false);
-  const [blockedUsers, setBlockedUsers] = useState([]);
-  const [blockedLoading, setBlockedLoading] = useState(false);
-  const [blockedOpen, setBlockedOpen] = useState(false);
   const [appLockEnabled, setAppLockEnabledState] = useState(false);
 
   const banner = resolveBackground(localBanner || user?.banner);
@@ -100,39 +97,6 @@ export default function SettingsScreen() {
       })();
     }, [])
   );
-
-  async function loadBlockedUsers() {
-    setBlockedLoading(true);
-    try {
-      const data = await apiRequest('/friends/blocked');
-      setBlockedUsers(data?.blocked || []);
-    } catch (e) {
-      // offline or backend unreachable - keep whatever we had
-    } finally {
-      setBlockedLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadBlockedUsers();
-  }, []);
-
-  function openBlockedList() {
-    setBlockedOpen(true);
-    loadBlockedUsers();
-  }
-
-  async function unblockUser(target) {
-    try {
-      await apiRequest('/friends/remove', {
-        method: 'POST',
-        body: JSON.stringify({ user_id: target.id }),
-      });
-      setBlockedUsers(prev => prev.filter(u => u.id !== target.id));
-    } catch (e) {
-      Alert.alert('Error', "Couldn't unblock this contact. Try again.");
-    }
-  }
 
   async function handleToggleAppLock(value) {
     if (value && !pinSet) {
@@ -275,7 +239,7 @@ export default function SettingsScreen() {
         <ToggleRow label="Freeze last seen" value={freezeLastSeen} onChange={setFreezeLastSeen} />
         <ToggleRow label="Ghost mode" value={ghostMode} onChange={setGhostMode} />
         <ToggleRow label="Profile photo visibility" value={profilePhotoVisible} onChange={setProfilePhotoVisible} />
-        <NavRow label="Blocked contacts" sub={String(blockedUsers.length)} onPress={openBlockedList} />
+        <NavRow label="Blocked contacts" sub="0" onPress={() => {}} />
         <ToggleRow label="Read receipts" value={readReceipts} onChange={setReadReceipts} />
         <ToggleRow label="Anti-delete messages" value={antiDelete} onChange={setAntiDelete} last />
       </GlassCard>
@@ -305,7 +269,7 @@ export default function SettingsScreen() {
         <NavRow label="Default wallpaper" sub={wallpaper ? 'Custom color' : 'Papercut (default)'} onPress={() => setWallpaperPickerOpen(true)} />
         <NavRow label="Font size" sub={fontSize} onPress={() => setFontPickerOpen(true)} />
         <NavRow label="Font family" sub={fontFamily} onPress={() => setFontFamilyPickerOpen(true)} />
-        <NavRow label="Chat backup" sub="Never" onPress={() => Alert.alert('Coming soon', "Chat backup isn't built yet — on the list next.")} last />
+        <NavRow label="Chat backup" sub="Never" onPress={() => {}} last />
       </GlassCard>
 
       <Text style={styles.sectionTitle}>Storage & Data</Text>
@@ -469,38 +433,6 @@ export default function SettingsScreen() {
           </GlassCard>
         </View>
       </Modal>
-
-      <Modal visible={blockedOpen} transparent animationType="slide" onRequestClose={() => setBlockedOpen(false)}>
-        <Pressable style={styles.blockedBackdrop} onPress={() => setBlockedOpen(false)}>
-          <GlassCard style={styles.blockedSheet} tint={0.55} blurAmount={24}>
-            <View style={styles.blockedHeader}>
-              <Text style={styles.pickerTitle}>Blocked contacts</Text>
-              <TouchableOpacity onPress={() => setBlockedOpen(false)}>
-                <X size={20} color="#6b6b7a" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={{ maxHeight: 360 }}>
-              {blockedLoading ? (
-                <Text style={styles.helpA}>Loading...</Text>
-              ) : blockedUsers.length === 0 ? (
-                <Text style={styles.helpA}>You haven't blocked anyone.</Text>
-              ) : (
-                blockedUsers.map((u, i) => (
-                  <View key={u.id} style={[styles.row, i < blockedUsers.length - 1 && styles.rowBorder]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.rowLabel}>{u.username}</Text>
-                      <Text style={styles.rowSub}>{u.handle}</Text>
-                    </View>
-                    <TouchableOpacity onPress={() => unblockUser(u)} style={styles.unblockBtn}>
-                      <Text style={styles.unblockBtnText}>Unblock</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-          </GlassCard>
-        </Pressable>
-      </Modal>
     </ScrollView>
   );
 }
@@ -571,9 +503,4 @@ const styles = StyleSheet.create({
   pickerCancelText: { color: '#6b6b7a', fontWeight: '700', fontSize: 13.5 },
   helpQ: { fontSize: 13.5, fontWeight: '700', color: '#0f0f1a', marginTop: 12 },
   helpA: { fontSize: 12.5, color: '#6b6b7a', marginTop: 4, lineHeight: 18 },
-  blockedBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
-  blockedSheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: 20, paddingBottom: 30 },
-  blockedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  unblockBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, backgroundColor: 'rgba(15,15,26,0.08)' },
-  unblockBtnText: { fontSize: 12, fontWeight: '700', color: '#4f46e5' },
 });

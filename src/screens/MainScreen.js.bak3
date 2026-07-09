@@ -104,7 +104,7 @@ function ChatRow({ chat, onPress, onLongPress, onOpenProfile, onArchive, onMute 
   const translateX = useState(new Animated.Value(0))[0];
   const SWIPE_THRESHOLD = 60;
   const panResponder = PanResponder.create({
-    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10,
+    onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
     onPanResponderMove: (_, g) => translateX.setValue(Math.max(-90, Math.min(90, g.dx))),
     onPanResponderRelease: (_, g) => {
       if (g.dx > SWIPE_THRESHOLD) onArchive && onArchive(chat);
@@ -329,7 +329,7 @@ export default function MainScreen() {
   const archivedCount = enrichedChats.filter(c => c.archived).length;
 
   const openChat = useCallback((chat) => {
-    if (chat.locked && !showArchived) {
+    if (chat.locked) {
       setPinPrompt(chat);
       setPinEntry('');
       setPinError(false);
@@ -339,7 +339,7 @@ export default function MainScreen() {
       updateMeta(chat.id, { unread: false });
     }
     navigation.navigate(chat.isGroup ? 'GroupChatDetail' : 'ChatDetail', { chat });
-  }, [navigation, chatMeta, showArchived]);
+  }, [navigation, chatMeta]);
 
   async function submitPin(pin) {
     try {
@@ -477,8 +477,45 @@ export default function MainScreen() {
         );
         break;
       case 'clear':
+        Alert.alert(
+          'Clear chat?',
+          'This clears the chat history on your device only. The other person still has their copy.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Clear', style: 'destructive', onPress: async () => {
+                try {
+                  const key = `b24_msg_meta_${chat.id}`;
+                  const raw = await AsyncStorage.getItem(key);
+                  const existing = raw ? JSON.parse(raw) : {};
+                  const next = { ...existing, clearedAt: Math.floor(Date.now() / 1000) };
+                  await AsyncStorage.setItem(key, JSON.stringify(next));
+                } catch (e) {
+                  Alert.alert('Error', "Couldn't clear this chat. Try again.");
+                }
+              },
+            },
+          ]
+        );
+        break;
       case 'delete':
-        Alert.alert('Coming soon', "This needs a quick server call we haven't wired up yet — on the list next.");
+        Alert.alert(
+          `Delete ${chat.name}?`,
+          'This permanently deletes the chat history for both of you. This cannot be undone.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Delete', style: 'destructive', onPress: async () => {
+                try {
+                  await apiRequest(`/messages/${parseInt(chat.id, 10)}`, { method: 'DELETE' });
+                  updateMeta(chat.id, { archived: true });
+                } catch (e) {
+                  Alert.alert('Error', "Couldn't delete this chat. Try again.");
+                }
+              },
+            },
+          ]
+        );
         break;
       default:
         break;
