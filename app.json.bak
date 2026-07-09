@@ -38,7 +38,9 @@
     },
     "plugins": [
       "expo-status-bar",
-      "./plugins/withWebRTC.js"
+      "./plugins/withWebRTC.js",
+      "expo-image-picker",
+      "expo-document-picker"
     ],
     "scheme": "b24meet"
   }
