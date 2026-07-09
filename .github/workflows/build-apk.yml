@@ -33,9 +33,17 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
+      - name: Decode release keystore
+        run: echo "${{ secrets.B24_KEYSTORE_BASE64 }}" | base64 -d > ${{ github.workspace }}/b24-release.keystore
+
       - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleRelease
+        run: |
+          ./gradlew assembleRelease \
+            -PB24_UPLOAD_STORE_FILE=${{ github.workspace }}/b24-release.keystore \
+            -PB24_UPLOAD_STORE_PASSWORD=${{ secrets.B24_KEYSTORE_PASSWORD }} \
+            -PB24_UPLOAD_KEY_ALIAS=${{ secrets.B24_KEY_ALIAS }} \
+            -PB24_UPLOAD_KEY_PASSWORD=${{ secrets.B24_KEY_PASSWORD }}
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
