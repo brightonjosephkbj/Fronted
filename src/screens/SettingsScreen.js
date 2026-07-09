@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal, Alert, Pressable } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal, Alert, Pressable, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
+import * as IntentLauncher from 'expo-intent-launcher';
 import { BlurView } from '@react-native-community/blur';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
@@ -26,6 +28,7 @@ function resolveBackground(banner) {
 const BANNER_CACHE_KEY = 'b24_profile_banner';
 const WALLPAPER_CACHE_KEY = 'b24_default_wallpaper';
 const BANNER_COLORS = ['#4f46e5', '#9333ea', '#f97316', '#0ea5a4', '#db2777', '#16a34a', '#0f172a', '#eab308'];
+const CURRENT_APP_VERSION = '1.0.0';
 
 function verifiedColor(tick) {
   if (tick === 'cyan') return '#06b6d4';
@@ -59,6 +62,10 @@ export default function SettingsScreen() {
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [blockedOpen, setBlockedOpen] = useState(false);
   const [appLockEnabled, setAppLockEnabledState] = useState(false);
+  const [updateSheetOpen, setUpdateSheetOpen] = useState(false);
+  const [updateStage, setUpdateStage] = useState('idle'); // idle | checking | uptodate | available | downloading | error
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [downloadProgress, setDownloadProgress] = useState(0);
 
   const banner = resolveBackground(localBanner || user?.banner);
 
@@ -227,6 +234,65 @@ export default function SettingsScreen() {
     );
   }
 
+  function openUpdateSheet() {
+    setUpdateStage('idle');
+    setUpdateInfo(null);
+    setDownloadProgress(0);
+    setUpdateSheetOpen(true);
+  }
+
+  async function handleCheckForUpdates() {
+    setUpdateStage('checking');
+    try {
+      const data = await apiRequest(`/app/version?current_version=${CURRENT_APP_VERSION}`);
+      if (data?.update_available && data?.apk_url) {
+        setUpdateInfo(data);
+        setUpdateStage('available');
+      } else {
+        setUpdateStage('uptodate');
+      }
+    } catch (e) {
+      setUpdateStage('error');
+    }
+  }
+
+  async function handleDownloadAndInstall() {
+    if (!updateInfo?.apk_url) return;
+    setUpdateStage('downloading');
+    setDownloadProgress(0);
+    try {
+      const fileUri = FileSystem.cacheDirectory + 'b24-update.apk';
+      const downloadResumable = FileSystem.createDownloadResumable(
+        updateInfo.apk_url,
+        fileUri,
+        {},
+        (progress) => {
+          const pct = progress.totalBytesExpectedToWrite
+            ? progress.totalBytesWritten / progress.totalBytesExpectedToWrite
+            : 0;
+          setDownloadProgress(pct);
+        }
+      );
+      const result = await downloadResumable.downloadAsync();
+      if (!result?.uri) throw new Error('Download failed');
+
+      // Installing an update over the same package keeps AsyncStorage and
+      // the backend DB exactly as they are — nothing local gets wiped.
+      const contentUri = await FileSystem.getContentUriAsync(result.uri);
+      await IntentLauncher.startActivityAsync('android.intent.action.VIEW', {
+        data: contentUri,
+        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+        type: 'application/vnd.android.package-archive',
+      });
+      // Android's own installer takes over from here. Once the user
+      // confirms, the updated app reopens fresh with all local data intact.
+      setUpdateSheetOpen(false);
+    } catch (e) {
+      Alert.alert('Update failed', "Couldn't download or open the update. Try again.");
+      setUpdateStage('available');
+    }
+  }
+
   return (
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 14 }}>
       <View style={styles.headerRow}>
@@ -318,7 +384,7 @@ export default function SettingsScreen() {
       <GlassCard style={{ padding: 0 }}>
         <NavRow label="Help center" onPress={() => setHelpOpen(true)} />
         <NavRow label="Terms & Privacy Policy" onPress={() => setTermsOpen(true)} />
-        <Row label="App version" sub="1.0.0" last />
+        <NavRow label="Check for updates" sub={CURRENT_APP_VERSION} onPress={openUpdateSheet} last />
       </GlassCard>
 
       <Text style={[styles.sectionTitle, { color: '#ef4444' }]}>Danger Zone</Text>
@@ -501,6 +567,64 @@ export default function SettingsScreen() {
           </GlassCard>
         </Pressable>
       </Modal>
+
+      <Modal visible={updateSheetOpen} transparent animationType="slide" onRequestClose={() => setUpdateSheetOpen(false)}>
+        <Pressable style={styles.blockedBackdrop} onPress={() => setUpdateSheetOpen(false)}>
+          <GlassCard style={styles.blockedSheet} tint={0.55} blurAmount={24}>
+            <View style={styles.blockedHeader}>
+              <Text style={styles.pickerTitle}>App Updates</Text>
+              <TouchableOpacity onPress={() => setUpdateSheetOpen(false)}>
+                <X size={20} color="#6b6b7a" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.rowSub}>Current version: {CURRENT_APP_VERSION}</Text>
+
+            {updateStage === 'idle' && (
+              <TouchableOpacity style={styles.updateBtn} onPress={handleCheckForUpdates}>
+                <Text style={styles.updateBtnText}>Check for updates</Text>
+              </TouchableOpacity>
+            )}
+
+            {updateStage === 'checking' && (
+              <View style={styles.updateStatusRow}>
+                <ActivityIndicator size="small" color="#4f46e5" />
+                <Text style={styles.helpA}>Checking for updates...</Text>
+              </View>
+            )}
+
+            {updateStage === 'uptodate' && (
+              <Text style={[styles.helpA, { marginTop: 12 }]}>You're on the latest version.</Text>
+            )}
+
+            {updateStage === 'available' && (
+              <>
+                <Text style={[styles.helpA, { marginTop: 12 }]}>
+                  Version {updateInfo?.version} is available{updateInfo?.notes ? `: ${updateInfo.notes}` : '.'}
+                </Text>
+                <TouchableOpacity style={styles.updateBtn} onPress={handleDownloadAndInstall}>
+                  <Text style={styles.updateBtnText}>Update</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {updateStage === 'downloading' && (
+              <View style={{ marginTop: 12 }}>
+                <Text style={styles.helpA}>Downloading update... {Math.round(downloadProgress * 100)}%</Text>
+                <View style={styles.progressTrack}>
+                  <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
+                </View>
+              </View>
+            )}
+
+            {updateStage === 'error' && (
+              <Text style={[styles.helpA, { marginTop: 12, color: '#ef4444' }]}>
+                Couldn't check for updates. Check your connection and try again.
+              </Text>
+            )}
+          </GlassCard>
+        </Pressable>
+      </Modal>
     </ScrollView>
   );
 }
@@ -576,4 +700,9 @@ const styles = StyleSheet.create({
   blockedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   unblockBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 12, backgroundColor: 'rgba(15,15,26,0.08)' },
   unblockBtnText: { fontSize: 12, fontWeight: '700', color: '#4f46e5' },
+  updateBtn: { marginTop: 16, backgroundColor: '#4f46e5', borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
+  updateBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 13.5 },
+  updateStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  progressTrack: { height: 8, borderRadius: 4, backgroundColor: 'rgba(15,15,26,0.08)', overflow: 'hidden', marginTop: 8 },
+  progressFill: { height: 8, borderRadius: 4, backgroundColor: '#4f46e5' },
 });

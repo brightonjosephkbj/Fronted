@@ -6,8 +6,8 @@ import { BlurView } from '@react-native-community/blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 import { BadgeCheck, ChevronLeft, FileText, Mic, Phone, Plus, Send, Settings, Video } from 'lucide-react-native';
-import { io } from 'socket.io-client';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import FileViewer from 'react-native-file-viewer';
@@ -32,8 +32,6 @@ function verifiedColor(tick) {
   if (tick === 'blue') return '#3b82f6';
   return '#a855f7';
 }
-const MESSENGER_API = 'https://Brighton233j-Messenger-back-database.hf.space';
-
 // Adjust these to match your backend's actual socket event names once
 // group messaging endpoints exist server-side.
 const EVENT_NEW_GROUP_MESSAGE = 'new_group_message';
@@ -68,6 +66,7 @@ export default function GroupChatDetailScreen() {
   const route = useRoute();
   const navigation = useNavigation();
   const { apiRequest, apiUpload, user, token } = useAuth();
+  const { socket } = useSocket();
   const group = route.params?.chat || { id: 'group', name: 'Group', color: '#4f46e5', onlineCount: 0 };
   const groupId = group.id;
 
@@ -144,38 +143,41 @@ export default function GroupChatDetailScreen() {
     })();
   }, [groupId]);
 
-  // Real-time connection, scoped to this group
+  // Real-time updates — shared socket from SocketContext, not a new connection
   useEffect(() => {
-    if (!token) return;
-    const socket = io(MESSENGER_API, { query: { token, group_id: groupId }, transports: ['websocket'] });
+    if (!socket) return;
     socketRef.current = socket;
 
     socket.emit('join_group', { token, group_id: groupId });
 
-    socket.on(EVENT_NEW_GROUP_MESSAGE, (data) => {
+    const onNewGroupMessage = (data) => {
       if (String(data.group_id) !== String(groupId)) return;
       setMessages(prev => [...prev, mapServerMessage(data)]);
-    });
-
-    socket.on(EVENT_GROUP_TYPING, (data) => {
+    };
+    const onGroupTyping = (data) => {
       if (String(data.group_id) !== String(groupId) || data.user_id === user?.id) return;
       setTypingUsers(prev => ({ ...prev, [data.user_id]: data.username || 'Someone' }));
-    });
-
-    socket.on(EVENT_GROUP_STOP_TYPING, (data) => {
+    };
+    const onGroupStopTyping = (data) => {
       if (String(data.group_id) !== String(groupId)) return;
       setTypingUsers(prev => {
         const next = { ...prev };
         delete next[data.user_id];
         return next;
       });
-    });
+    };
+
+    socket.on(EVENT_NEW_GROUP_MESSAGE, onNewGroupMessage);
+    socket.on(EVENT_GROUP_TYPING, onGroupTyping);
+    socket.on(EVENT_GROUP_STOP_TYPING, onGroupStopTyping);
 
     return () => {
       socket.emit('leave_group', { token, group_id: groupId });
-      socket.disconnect();
+      socket.off(EVENT_NEW_GROUP_MESSAGE, onNewGroupMessage);
+      socket.off(EVENT_GROUP_TYPING, onGroupTyping);
+      socket.off(EVENT_GROUP_STOP_TYPING, onGroupStopTyping);
     };
-  }, [token, groupId, user?.id, mapServerMessage]);
+  }, [socket, token, groupId, user?.id, mapServerMessage]);
 
   useEffect(() => {
     const t = setInterval(() => setStatusFlip(v => !v), 3200);
