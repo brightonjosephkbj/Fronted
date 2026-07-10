@@ -51,7 +51,8 @@
       "expo-audio",
       "expo-video",
       "expo-asset",
-      "expo-sharing"
+      "expo-sharing",
+      "expo-sqlite"
     ],
     "scheme": "b24meet",
     "ios": {

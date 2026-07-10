@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system';
 
 const AuthContext = createContext(null);
 
@@ -106,30 +107,30 @@ export function AuthProvider({ children }) {
 
   async function apiUploadFile(path, uri, options = {}) {
     const { fieldName = 'file', filename, mimeType, fields = {} } = options;
-    const formData = new FormData();
-    formData.append(fieldName, {
-      uri,
-      name: filename || uri.split('/').pop() || 'upload',
-      type: mimeType || 'application/octet-stream',
-    });
-    Object.entries(fields).forEach(([key, value]) => {
-      formData.append(key, String(value));
-    });
-    const res = await fetch(`${API_BASE}${path}`, {
-      method: 'POST',
-      headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: formData,
-    });
-    let data = {};
     try {
-      data = await res.json();
-    } catch (e) {}
-    if (!res.ok) {
-      throw new Error(data?.error || data?.message || 'Upload failed');
+      const result = await FileSystem.uploadAsync(`${API_BASE}${path}`, uri, {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+        fieldName,
+        mimeType: mimeType || 'application/octet-stream',
+        parameters: {
+          ...Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, String(v)])),
+        },
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      let data = {};
+      try {
+        data = JSON.parse(result.body || '{}');
+      } catch (e) {}
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(data?.error || data?.message || 'Upload failed');
+      }
+      return data;
+    } catch (e) {
+      throw new Error(e.message || 'Upload failed');
     }
-    return data;
   }
 
   return (

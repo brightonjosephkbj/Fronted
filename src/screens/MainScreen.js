@@ -902,6 +902,7 @@ const styles = StyleSheet.create({
   archivedToggle: { paddingHorizontal: 20, paddingBottom: 8 },
   archivedToggleText: { fontSize: 12, fontWeight: '700', color: '#4f46e5' },
   chatRow: { flexDirection: 'row', alignItems: 'center', padding: 12, paddingHorizontal: 20, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#f0f0f3' },
+  swipeBgWrap: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, flexDirection: 'row', justifyContent: 'space-between' },
   swipeBgLeft: { width: 90, backgroundColor: '#16a34a', justifyContent: 'center', alignItems: 'center' },
   swipeBgRight: { width: 90, backgroundColor: '#f59e0b', justifyContent: 'center', alignItems: 'center' },
   swipeBgText: { color: 'white', fontWeight: '700', fontSize: 12.5 },

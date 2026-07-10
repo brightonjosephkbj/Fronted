@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
-  TextInput, Animated,
+  TextInput, Animated, Image, Alert, Pressable,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useNavigation } from '@react-navigation/native';
-import { ChevronLeft, Eye, Radio, Send, X, Plus, ChevronUp, ChevronDown } from 'lucide-react-native';
+import {
+  ChevronLeft, Eye, Radio, Send, X, Plus, ChevronUp, ChevronDown,
+  Image as ImageIcon, Film, Music2, Type, Play, Pause,
+} from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 
 const PALETTE = ["#9333ea", "#f97316", "#0ea5a4", "#4f46e5", "#db2777", "#16a34a", "#ea580c", "#0891b2", "#7c3aed", "#c026d3"];
@@ -32,49 +39,150 @@ function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   );
 }
 
-function StatusCircle({ item, isMe, onOpen }) {
+function StatusCircle({ item, isMe, hasStatuses, onOpen, onAdd }) {
   return (
-    <TouchableOpacity style={styles.circleWrap} onPress={() => onOpen(item)}>
+    <TouchableOpacity
+      style={styles.circleWrap}
+      onPress={() => (isMe && !hasStatuses ? onAdd() : onOpen(item))}
+    >
       <View style={[styles.circleRing, { borderColor: item.viewed ? '#d1d5db' : item.color }]}>
-        <View style={[styles.circleInner, { backgroundColor: item.color }]}>
-          <Text style={styles.circleInitial}>{item.name[0]}</Text>
-        </View>
+        {item.avatarUrl ? (
+          <Image source={{ uri: item.avatarUrl }} style={styles.circleInnerImg} />
+        ) : (
+          <View style={[styles.circleInner, { backgroundColor: item.color }]}>
+            <Text style={styles.circleInitial}>{item.name[0]}</Text>
+          </View>
+        )}
       </View>
       {isMe && (
-        <View style={styles.plusBadge}>
+        <TouchableOpacity style={styles.plusBadge} onPress={onAdd} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Plus size={12} color="white" strokeWidth={3} />
-        </View>
+        </TouchableOpacity>
       )}
       <Text style={styles.circleLabel} numberOfLines={1}>{isMe ? 'My Status' : item.name}</Text>
     </TouchableOpacity>
   );
 }
 
-function StoryViewer({ item, onClose }) {
+function StoryVideoSlide({ uri, onReady, onEnd }) {
+  const player = useVideoPlayer({ uri }, (p) => {
+    p.play();
+  });
+  useEffect(() => {
+    const readySub = player.addListener('statusChange', ({ status }) => {
+      if (status === 'readyToPlay') {
+        const ms = player.duration ? Math.round(player.duration * 1000) : 15000;
+        onReady(Math.max(2000, ms));
+      }
+    });
+    const endSub = player.addListener('playToEnd', () => onEnd());
+    return () => {
+      readySub?.remove();
+      endSub?.remove();
+    };
+  }, [player]);
+  return (
+    <VideoView player={player} style={StyleSheet.absoluteFillObject} contentFit="contain" nativeControls={false} />
+  );
+}
+
+function StoryAudioSlide({ uri, color, onReady, onEnd }) {
+  const player = useAudioPlayer({ uri });
+  const status = useAudioPlayerStatus(player);
+
+  useEffect(() => {
+    player.play();
+    return () => { try { player.pause(); } catch (e) {} };
+  }, [player]);
+
+  useEffect(() => {
+    if (status?.duration) onReady(Math.max(2000, Math.round(status.duration * 1000)));
+  }, [status?.duration]);
+
+  useEffect(() => {
+    if (status?.didJustFinish) onEnd();
+  }, [status?.didJustFinish]);
+
+  return (
+    <View style={[StyleSheet.absoluteFillObject, styles.audioSlide, { backgroundColor: color }]}>
+      <View style={styles.audioIconWrap}>
+        {status?.playing ? <Pause size={34} color="white" /> : <Play size={34} color="white" />}
+      </View>
+      <Text style={styles.audioSlideText}>Audio status</Text>
+    </View>
+  );
+}
+
+function StoryViewer({ item, isMe, onClose }) {
+  const { apiRequest } = useAuth();
   const [segIndex, setSegIndex] = useState(0);
+  const [duration, setDuration] = useState(5000);
+  const [viewCount, setViewCount] = useState(null);
   const progress = useRef(new Animated.Value(0)).current;
+  const durationSetRef = useRef(false);
+
+  const statuses = item.statuses || [];
+  const current = statuses[segIndex];
 
   useEffect(() => {
     setSegIndex(0);
   }, [item]);
 
   useEffect(() => {
+    durationSetRef.current = false;
+    setDuration(current && (current.content_type === 'text' || current.content_type === 'photo') ? 5000 : 15000);
+  }, [segIndex, item]);
+
+  function goNext() {
+    if (segIndex < statuses.length - 1) setSegIndex(i => i + 1);
+    else onClose();
+  }
+
+  useEffect(() => {
     progress.setValue(0);
-    const anim = Animated.timing(progress, { toValue: 1, duration: 4000, useNativeDriver: false });
+    const anim = Animated.timing(progress, { toValue: 1, duration, useNativeDriver: false });
     anim.start(({ finished }) => {
-      if (!finished) return;
-      if (segIndex < item.segments - 1) setSegIndex(i => i + 1);
-      else onClose();
+      if (finished) goNext();
     });
     return () => anim.stop();
-  }, [item, segIndex]);
+  }, [segIndex, item, duration]);
+
+  useEffect(() => {
+    if (!isMe || !current) return;
+    setViewCount(null);
+    apiRequest(`/status/${current.id}/viewers`)
+      .then(data => setViewCount(typeof data?.count === 'number' ? data.count : 0))
+      .catch(() => setViewCount(0));
+  }, [segIndex, item, isMe]);
+
+  function setDynamicDuration(ms) {
+    if (durationSetRef.current) return;
+    durationSetRef.current = true;
+    setDuration(ms);
+  }
 
   const widthInterpolate = progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
+  const bgColor = current?.bg_color || item.color;
 
   return (
-    <View style={[styles.storyScreen, { backgroundColor: item.color }]}>
+    <View style={[styles.storyScreen, { backgroundColor: bgColor }]}>
+      {current?.content_type === 'photo' && current.media_url && (
+        <Image source={{ uri: current.media_url }} style={StyleSheet.absoluteFillObject} resizeMode="contain" />
+      )}
+      {current?.content_type === 'video' && current.media_url && (
+        <StoryVideoSlide uri={current.media_url} onReady={setDynamicDuration} onEnd={goNext} />
+      )}
+      {(current?.content_type === 'voice' || current?.content_type === 'song') && current.media_url && (
+        <StoryAudioSlide uri={current.media_url} color={bgColor} onReady={setDynamicDuration} onEnd={goNext} />
+      )}
+      {current?.content_type === 'text' && (
+        <View style={[StyleSheet.absoluteFillObject, { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }]}>
+          <Text style={styles.textSlideText}>{current.text_content}</Text>
+        </View>
+      )}
+
       <View style={styles.storySegments}>
-        {Array.from({ length: item.segments }).map((_, i) => (
+        {statuses.map((_, i) => (
           <View key={i} style={styles.segmentTrack}>
             <Animated.View style={[
               styles.segmentFill,
@@ -91,43 +199,89 @@ function StoryViewer({ item, onClose }) {
         <View style={styles.storyHeader}>
           <View style={styles.storyAvatar}><Text style={styles.storyAvatarText}>{item.name[0]}</Text></View>
           <Text style={styles.storyName}>{item.name}</Text>
-          <Text style={styles.storyTime}>{item.time}</Text>
+          <Text style={styles.storyTime}>{current ? timeAgo(current.created_at) : item.time}</Text>
           <View style={{ flex: 1 }} />
           <TouchableOpacity onPress={onClose}><X size={22} color="white" /></TouchableOpacity>
         </View>
       </View>
 
-      <View style={{ flex: 1 }} />
+      <Pressable style={styles.storyTapLeft} onPress={() => setSegIndex(i => Math.max(0, i - 1))} />
+      <Pressable style={styles.storyTapRight} onPress={goNext} />
 
       <View style={styles.storyFooterWrap}>
         <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={20} />
-        <View style={styles.storyReplyRow}>
-          <TextInput
-            placeholder={`Reply to ${item.name}...`}
-            placeholderTextColor="rgba(255,255,255,0.7)"
-            style={styles.storyReplyInput}
-          />
-          <TouchableOpacity style={styles.storySendBtn}>
-            <Send size={15} color="white" />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.storyViewsRow}>
-          <Eye size={12} color="rgba(255,255,255,0.7)" />
-          <Text style={styles.storyViews}>14 views</Text>
-        </View>
+        {!isMe && (
+          <View style={styles.storyReplyRow}>
+            <TextInput
+              placeholder={`Reply to ${item.name}...`}
+              placeholderTextColor="rgba(255,255,255,0.7)"
+              style={styles.storyReplyInput}
+            />
+            <TouchableOpacity style={styles.storySendBtn}>
+              <Send size={15} color="white" />
+            </TouchableOpacity>
+          </View>
+        )}
+        {isMe && (
+          <View style={styles.storyViewsRow}>
+            <Eye size={12} color="rgba(255,255,255,0.7)" />
+            <Text style={styles.storyViews}>
+              {viewCount === null ? 'Loading views...' : `${viewCount} view${viewCount === 1 ? '' : 's'}`}
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
 }
 
-function ComposeModal({ visible, onClose, onPosted }) {
-  const { apiUpload } = useAuth();
+function AddStatusSheet({ visible, onClose, onPickText, onPickPhoto, onPickVideo, onPickAudio }) {
+  const OPTIONS = [
+    { key: 'text', label: 'Text', sub: 'Share a colored text update', Icon: Type, color: '#4f46e5', action: onPickText },
+    { key: 'photo', label: 'Photo', sub: 'Post a picture from your gallery', Icon: ImageIcon, color: '#16a34a', action: onPickPhoto },
+    { key: 'video', label: 'Video', sub: 'Share a short video clip', Icon: Film, color: '#ea580c', action: onPickVideo },
+    { key: 'audio', label: 'Audio', sub: 'Post a voice note or song', Icon: Music2, color: '#db2777', action: onPickAudio },
+  ];
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable style={styles.sheetBackdrop} onPress={onClose}>
+        <View style={styles.addSheetWrap}>
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={40} />
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(255,255,255,0.4)' }]} />
+          <Text style={styles.addSheetTitle}>Add to Status</Text>
+          {OPTIONS.map(opt => (
+            <TouchableOpacity key={opt.key} style={styles.addSheetRow} onPress={() => { onClose(); opt.action(); }}>
+              <View style={[styles.addSheetIcon, { backgroundColor: opt.color }]}>
+                <opt.Icon size={18} color="white" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.addSheetLabel}>{opt.label}</Text>
+                <Text style={styles.addSheetSub}>{opt.sub}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function ComposeModal({ visible, mode, asset, onClose, onPosted }) {
+  const { apiUpload, apiUploadFile } = useAuth();
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
   const bgColors = ['#4f46e5', '#db2777', '#16a34a', '#ea580c', '#0891b2'];
   const [bg, setBg] = useState(bgColors[0]);
 
-  async function handlePost() {
+  useEffect(() => {
+    if (visible) { setText(''); setBg(bgColors[0]); }
+  }, [visible]);
+
+  const videoPlayer = useVideoPlayer(mode === 'video' && asset?.uri ? { uri: asset.uri } : null, (p) => {
+    if (mode === 'video') p.play();
+  });
+
+  async function handlePostText() {
     if (!text.trim() || posting) return;
     setPosting(true);
     try {
@@ -137,42 +291,105 @@ function ComposeModal({ visible, onClose, onPosted }) {
       form.append('bg_color', bg);
       form.append('privacy', 'all');
       await apiUpload('/status/post', form);
-      setText('');
       onPosted();
       onClose();
     } catch (e) {
       console.log('Failed to post status:', e);
+      Alert.alert('Post failed', String(e?.message || e));
     } finally {
       setPosting(false);
     }
   }
 
+  async function handlePostMedia() {
+    if (!asset?.uri || posting) return;
+    setPosting(true);
+    try {
+      const contentType = mode === 'photo' ? 'photo' : mode === 'video' ? 'video' : 'song';
+      await apiUploadFile('/status/post', asset.uri, {
+        filename: asset.filename,
+        mimeType: asset.mimeType,
+        fields: {
+          content_type: contentType,
+          privacy: 'all',
+          ...(text.trim() ? { text_content: text.trim() } : {}),
+        },
+      });
+      onPosted();
+      onClose();
+    } catch (e) {
+      console.log('Failed to post status:', e);
+      Alert.alert('Post failed', String(e?.message || e));
+    } finally {
+      setPosting(false);
+    }
+  }
+
+  if (mode === 'text') {
+    return (
+      <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+        <View style={[styles.storyScreen, { backgroundColor: bg }]}>
+          <View style={styles.composeHeader}>
+            <TouchableOpacity onPress={onClose}><X size={24} color="white" /></TouchableOpacity>
+            <View style={{ flex: 1 }} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {bgColors.map(c => (
+                <TouchableOpacity key={c} onPress={() => setBg(c)} style={[styles.bgSwatch, { backgroundColor: c }, bg === c && styles.bgSwatchActive]} />
+              ))}
+            </View>
+          </View>
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+            <TextInput
+              value={text}
+              onChangeText={setText}
+              placeholder="Type a status..."
+              placeholderTextColor="rgba(255,255,255,0.6)"
+              style={styles.composeInput}
+              multiline
+              autoFocus
+            />
+          </View>
+          <TouchableOpacity style={styles.composeSendBtn} onPress={handlePostText} disabled={!text.trim() || posting}>
+            <Send size={18} color={bg} />
+            <Text style={[styles.composeSendText, { color: bg }]}>{posting ? 'Posting...' : 'Post status'}</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.storyScreen, { backgroundColor: bg }]}>
+      <View style={[styles.storyScreen, { backgroundColor: '#0f0f1a' }]}>
         <View style={styles.composeHeader}>
           <TouchableOpacity onPress={onClose}><X size={24} color="white" /></TouchableOpacity>
-          <View style={{ flex: 1 }} />
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            {bgColors.map(c => (
-              <TouchableOpacity key={c} onPress={() => setBg(c)} style={[styles.bgSwatch, { backgroundColor: c }, bg === c && styles.bgSwatchActive]} />
-            ))}
-          </View>
         </View>
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}>
+        <View style={{ flex: 1 }}>
+          {mode === 'photo' && asset?.uri && (
+            <Image source={{ uri: asset.uri }} style={StyleSheet.absoluteFillObject} resizeMode="contain" />
+          )}
+          {mode === 'video' && asset?.uri && (
+            <VideoView player={videoPlayer} style={StyleSheet.absoluteFillObject} contentFit="contain" nativeControls={false} />
+          )}
+          {mode === 'audio' && asset?.uri && (
+            <View style={[StyleSheet.absoluteFillObject, styles.audioSlide, { backgroundColor: '#db2777' }]}>
+              <Music2 size={40} color="white" />
+              <Text style={styles.audioSlideText} numberOfLines={1}>{asset.filename}</Text>
+            </View>
+          )}
+        </View>
+        <View style={{ paddingHorizontal: 20, paddingBottom: 10 }}>
           <TextInput
             value={text}
             onChangeText={setText}
-            placeholder="Type a status..."
+            placeholder="Add a caption..."
             placeholderTextColor="rgba(255,255,255,0.6)"
-            style={styles.composeInput}
-            multiline
-            autoFocus
+            style={styles.captionInput}
           />
         </View>
-        <TouchableOpacity style={styles.composeSendBtn} onPress={handlePost} disabled={!text.trim() || posting}>
-          <Send size={18} color={bg} />
-          <Text style={[styles.composeSendText, { color: bg }]}>{posting ? 'Posting...' : 'Post status'}</Text>
+        <TouchableOpacity style={styles.composeSendBtn} onPress={handlePostMedia} disabled={posting}>
+          <Send size={18} color="#0f0f1a" />
+          <Text style={[styles.composeSendText, { color: '#0f0f1a' }]}>{posting ? 'Posting...' : 'Post status'}</Text>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -186,7 +403,6 @@ export default function StatusScreen() {
   const [openStory, setOpenStory] = useState(null);
   const [myStatuses, setMyStatuses] = useState([]);
   const [feed, setFeed] = useState([]);
-  const [composeOpen, setComposeOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [channels, setChannels] = useState([]);
   const [channelsLoaded, setChannelsLoaded] = useState(false);
@@ -229,13 +445,72 @@ export default function StatusScreen() {
       id: entry.user_id,
       name: entry.username,
       color: colorForId(entry.user_id),
-      segments: entry.statuses.length,
+      statuses: entry.statuses,
       time: timeAgo(last.created_at),
-      statusIds: entry.statuses.map(s => s.id),
+      isMe: false,
     });
     entry.statuses.forEach(s => {
       apiRequest('/status/view', { method: 'POST', body: JSON.stringify({ status_id: s.id }) }).catch(() => {});
     });
+  }
+
+  function openMyStory() {
+    if (!myStatuses.length) return;
+    const last = myStatuses[myStatuses.length - 1];
+    setOpenStory({
+      id: 'me',
+      name: user?.username || 'My Status',
+      color: '#4f46e5',
+      statuses: myStatuses,
+      time: timeAgo(last.created_at),
+      isMe: true,
+    });
+  }
+
+  const [composeConfig, setComposeConfig] = useState(null); // { mode, asset }
+  const [addSheetOpen, setAddSheetOpen] = useState(false);
+
+  function openAddSheet() {
+    setAddSheetOpen(true);
+  }
+
+  function pickTextStatus() {
+    setComposeConfig({ mode: 'text', asset: null });
+  }
+
+  async function pickPhotoStatus() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to post a photo status.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets?.length) return;
+    const a = result.assets[0];
+    setComposeConfig({ mode: 'photo', asset: { uri: a.uri, filename: a.fileName || 'status.jpg', mimeType: a.mimeType || 'image/jpeg' } });
+  }
+
+  async function pickVideoStatus() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to post a video status.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], quality: 0.8 });
+    if (result.canceled || !result.assets?.length) return;
+    const a = result.assets[0];
+    setComposeConfig({ mode: 'video', asset: { uri: a.uri, filename: a.fileName || 'status.mp4', mimeType: a.mimeType || 'video/mp4' } });
+  }
+
+  async function pickAudioStatus() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*', copyToCacheDirectory: true });
+      if (result.canceled || !result.assets?.length) return;
+      const a = result.assets[0];
+      setComposeConfig({ mode: 'audio', asset: { uri: a.uri, filename: a.name || 'status.mp3', mimeType: a.mimeType || 'audio/mpeg' } });
+    } catch (e) {
+      Alert.alert('Error', "Couldn't open the audio picker.");
+    }
   }
 
   function openChannel(channel) {
@@ -263,17 +538,16 @@ export default function StatusScreen() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 14, paddingBottom: 20 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.circleRow}>
           <StatusCircle
-            item={{ id: 'me', name: user?.username || 'My Status', color: '#4f46e5' }}
+            item={{ id: 'me', name: user?.username || 'My Status', color: '#4f46e5', avatarUrl: user?.avatar_url }}
             isMe
-            onOpen={() => myStatuses.length ? setOpenStory({
-              id: 'me', name: 'My Status', color: '#4f46e5',
-              segments: myStatuses.length, time: timeAgo(myStatuses[myStatuses.length - 1].created_at),
-            }) : setComposeOpen(true)}
+            hasStatuses={myStatuses.length > 0}
+            onOpen={openMyStory}
+            onAdd={openAddSheet}
           />
           {recent.map(entry => (
             <StatusCircle
               key={entry.user_id}
-              item={{ id: entry.user_id, name: entry.username, color: colorForId(entry.user_id), viewed: false }}
+              item={{ id: entry.user_id, name: entry.username, color: colorForId(entry.user_id), viewed: false, avatarUrl: entry.avatar_url }}
               onOpen={() => openFriendStory(entry)}
             />
           ))}
@@ -340,10 +614,25 @@ export default function StatusScreen() {
       </ScrollView>
 
       <Modal visible={!!openStory} animationType="fade" onRequestClose={() => setOpenStory(null)}>
-        {openStory && <StoryViewer item={openStory} onClose={() => setOpenStory(null)} />}
+        {openStory && <StoryViewer item={openStory} isMe={openStory.isMe} onClose={() => setOpenStory(null)} />}
       </Modal>
 
-      <ComposeModal visible={composeOpen} onClose={() => setComposeOpen(false)} onPosted={loadFeed} />
+      <AddStatusSheet
+        visible={addSheetOpen}
+        onClose={() => setAddSheetOpen(false)}
+        onPickText={pickTextStatus}
+        onPickPhoto={pickPhotoStatus}
+        onPickVideo={pickVideoStatus}
+        onPickAudio={pickAudioStatus}
+      />
+
+      <ComposeModal
+        visible={!!composeConfig}
+        mode={composeConfig?.mode}
+        asset={composeConfig?.asset}
+        onClose={() => setComposeConfig(null)}
+        onPosted={loadFeed}
+      />
     </View>
   );
 }
@@ -392,4 +681,19 @@ const styles = StyleSheet.create({
   composeInput: { color: 'white', fontSize: 24, fontWeight: '700', textAlign: 'center' },
   composeSendBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: 'white', margin: 20, borderRadius: 26, paddingVertical: 14 },
   composeSendText: { fontWeight: '700', fontSize: 14.5 },
+  circleInnerImg: { width: 48, height: 48, borderRadius: 24 },
+  textSlideText: { color: 'white', fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  audioSlide: { alignItems: 'center', justifyContent: 'center', gap: 16 },
+  audioIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
+  audioSlideText: { color: 'white', fontSize: 14, fontWeight: '600', paddingHorizontal: 24 },
+  storyTapLeft: { position: 'absolute', top: 80, bottom: 90, left: 0, width: '35%' },
+  storyTapRight: { position: 'absolute', top: 80, bottom: 90, right: 0, width: '35%' },
+  captionInput: { color: 'white', fontSize: 14, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  addSheetWrap: { overflow: 'hidden', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 18, paddingBottom: 30, paddingHorizontal: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', borderBottomWidth: 0 },
+  addSheetTitle: { fontSize: 13, fontWeight: '700', color: '#6b6b7a', textTransform: 'uppercase', paddingHorizontal: 16, marginBottom: 10 },
+  addSheetRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, paddingVertical: 12 },
+  addSheetIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  addSheetLabel: { fontSize: 14.5, fontWeight: '700', color: '#0f0f1a' },
+  addSheetSub: { fontSize: 11.5, color: '#6b6b7a', marginTop: 2 },
 });
