@@ -1,3 +1,16 @@
+
+if (!__DEV__) {
+  const defaultHandler = ErrorUtils.getGlobalHandler();
+  ErrorUtils.setGlobalHandler((error, isFatal) => {
+    Alert.alert(
+      isFatal ? 'Fatal Error' : 'Error',
+      `${error.name}: ${error.message}\n\n${error.stack}`,
+      [{ text: 'OK' }]
+    );
+    defaultHandler(error, isFatal);
+  });
+}
+
 import React, { useEffect } from 'react';
 import { Linking, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
@@ -91,6 +104,7 @@ function RootNavigator() {
 }
 
 import PointsScreen from './src/screens/PointsScreen';
+
 export default function App() {
   return (
     <AuthProvider>
