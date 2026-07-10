@@ -842,7 +842,11 @@ export default function ChatDetailScreen() {
           </TouchableOpacity>
           <View style={{ width: 36, height: 36 }}>
             <View style={[styles.headerAvatar, { backgroundColor: chat.color || '#9333ea' }]}>
-              <Text style={styles.headerAvatarText}>{chat.name?.[0]?.toUpperCase()}</Text>
+              {chat.avatarUrl ? (
+                <Image source={{ uri: chat.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+              ) : (
+                <Text style={styles.headerAvatarText}>{chat.name?.[0]?.toUpperCase()}</Text>
+              )}
             </View>
             {chat.verified && (
               <View style={[styles.headerVerifiedBadge, { backgroundColor: verifiedColor(chat.verified) }]}>

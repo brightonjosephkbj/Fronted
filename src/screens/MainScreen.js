@@ -137,7 +137,7 @@ function ChatRow({ chat, onPress, onLongPress, onOpenProfile, onArchive, onMute 
           delayLongPress={450}
         >
         <Pressable onPress={() => onOpenProfile(chat)}>
-          <Avatar name={chat.name} color={chat.color} verified={chat.verified} />
+          <Avatar name={chat.name} color={chat.color} verified={chat.verified} imageUri={chat.avatarUrl} />
         </Pressable>
         <View style={{ flex: 1, minWidth: 0, marginLeft: 12 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
