@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet, FlatList,
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { ChevronLeft } from 'lucide-react-native';
@@ -10,7 +10,7 @@ import { ChevronLeft } from 'lucide-react-native';
 function GlassCard({ style, children, blurAmount = 18 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
       <View style={styles.glassTint} />
       {children}
     </View>
@@ -49,7 +49,7 @@ export default function SearchScreen() {
     <View style={styles.screen}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtnWrap}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={14} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={14} />
           <Text style={styles.backBtn}><ChevronLeft size={22} color="#0f0f1a" /></Text>
         </TouchableOpacity>
         <GlassCard style={styles.searchField} blurAmount={16}>

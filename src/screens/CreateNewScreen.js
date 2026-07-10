@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { Camera, Check, ChevronLeft } from 'lucide-react-native';
 
 const CONFIG = {
@@ -38,7 +38,7 @@ const FRIENDS = [
 function GlassCard({ style, children }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={18} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={18} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: 'rgba(255,255,255,0.35)' }]} />
       {children}
     </View>

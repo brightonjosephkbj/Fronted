@@ -3,7 +3,7 @@ import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import Video from 'react-native-video';
 import { useAuth } from '../context/AuthContext';
 
@@ -94,7 +94,7 @@ export default function AuthScreen() {
       </View>
 
       <View style={styles.cardWrap}>
-        <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={18} />
+        <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={18} />
         <View style={styles.cardInner}>
           <View style={styles.tabRow}>
             <TouchableOpacity

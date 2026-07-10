@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, FlatList, Modal } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { Mic, MicOff, Smile, Video, VideoOff, Pause, Play, Phone, PhoneOff, Plus, X, PhoneIncoming, PhoneOutgoing, PhoneMissed } from 'lucide-react-native';
 import {
   mediaDevices,
@@ -385,7 +385,7 @@ export default function CallScreen() {
         <View style={styles.logHeaderRow}>
           <Text style={styles.logTitle}>Calls</Text>
           <TouchableOpacity style={styles.addCallBtn} onPress={openPicker}>
-            <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={20} />
+            <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={20} />
             <Plus size={20} color="#4338ca" />
           </TouchableOpacity>
         </View>
@@ -427,7 +427,7 @@ export default function CallScreen() {
         <Modal visible={pickerOpen} transparent animationType="fade" onRequestClose={() => setPickerOpen(false)}>
           <View style={styles.pickerBackdrop}>
             <View style={styles.pickerCard}>
-              <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={25} />
+              <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={25} />
               <View style={styles.pickerHeaderRow}>
                 <Text style={styles.pickerTitle}>Call a friend</Text>
                 <TouchableOpacity onPress={() => setPickerOpen(false)}>
@@ -470,7 +470,7 @@ export default function CallScreen() {
     <View style={styles.screen}>
       <View style={{ alignItems: 'center', paddingTop: 40 }}>
         <View style={styles.glassPill}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={20} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={20} />
           <Text style={styles.statusLabel}>
             {isDown ? 'CALL FAILED' : (callType === 'video' ? 'VIDEO CALL' : 'VOICE CALL')}
           </Text>
@@ -487,7 +487,7 @@ export default function CallScreen() {
               <Animated.View style={[styles.pulseRing, { transform: [{ scale: pulseAnim }] }]} />
             )}
             <View style={styles.avatarGlassWrap}>
-              <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={25} />
+              <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={25} />
               <View style={[styles.avatar, { backgroundColor: isDown ? '#9ca3af' : contact.color }]}>
                 <Text style={styles.avatarText}>{contact.name?.[0]}</Text>
               </View>
@@ -510,7 +510,7 @@ export default function CallScreen() {
 
       {reactionOpen && (
         <View style={styles.reactionCard}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={20} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={20} />
           {REACTIONS.map(e => (
             <TouchableOpacity key={e} onPress={() => setReactionOpen(false)}>
               <Text style={styles.reactionEmoji}>{e}</Text>
@@ -520,7 +520,7 @@ export default function CallScreen() {
       )}
 
       <View style={styles.controlsWrap}>
-        <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={25} />
+        <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={25} />
         {isDown ? (
           <View style={styles.controlsRow}>
             <ControlBtn label="Close" danger onPress={() => navigation.goBack()} icon={<PhoneOff size={18} color="white" />} />

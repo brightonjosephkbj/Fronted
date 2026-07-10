@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, FlatList, TextInput,
   Modal, Pressable, Animated, ImageBackground, Image, Platform, Alert, ActivityIndicator,
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 import Video from 'react-native-video';
@@ -67,7 +67,7 @@ function BubbleWrapper({ children, style }) {
 function GlassView({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[{ overflow: 'hidden' }, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>

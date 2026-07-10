@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useNavigation } from '@react-navigation/native';
 import { ChevronLeft } from 'lucide-react-native';
 
@@ -11,7 +11,7 @@ const KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, 'del'];
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>
@@ -126,7 +126,7 @@ export default function SetPinScreen() {
     <View style={styles.screen}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtnWrap}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={14} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={14} />
           <ChevronLeft size={22} color="#0f0f1a" />
         </TouchableOpacity>
         <Text style={styles.title}>App Lock</Text>

@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, FlatList, StyleSheet, Image,
   Modal, Pressable, PanResponder, Animated, ScrollView, Easing, Alert, Share,
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import Video from 'react-native-video';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
@@ -59,7 +59,7 @@ function TopBarBackground({ bg }) {
 function GlassView({ style, children, blurType = 'light', blurAmount = 18 }) {
   return (
     <View style={[{ overflow: 'hidden' }, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType={blurType} blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint={tint} intensity={intensity} />
       <View style={styles.glassTint} />
       {children}
     </View>
@@ -620,7 +620,7 @@ export default function MainScreen() {
       {/* top bar */}
       <Animated.View style={[styles.topBarWrap, { transform: [{ rotate: spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}>
         <TopBarBackground bg={topBarBg || user?.topBar} />
-        <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={12} />
+        <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={12} />
 
         {!celebrating && !banner && (
           <TouchableOpacity activeOpacity={0.9} onLongPress={() => setTopBarPickerOpen(true)} style={styles.topBarInner}>
@@ -720,7 +720,7 @@ export default function MainScreen() {
         </GlassView>
       )}
       <View style={styles.fabWrap}>
-        <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={10} />
+        <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={10} />
         <TouchableOpacity style={styles.fabInner} onPress={() => setFabOpen(v => !v)}>
           <Text style={styles.fabIcon}>{fabOpen ? '✕' : '+'}</Text>
         </TouchableOpacity>
@@ -729,7 +729,7 @@ export default function MainScreen() {
       {/* bottom nav */}
       <View style={styles.bottomNavWrap}>
         <View style={styles.bottomNav}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={16} />
+          <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={16} />
           {['Status', 'Chats', 'Requests'].map(label => {
             const isActive = activeTab === label;
             return (
@@ -821,7 +821,7 @@ export default function MainScreen() {
       {/* per-chat PIN prompt */}
       <Modal visible={!!pinPrompt} transparent animationType="fade" onRequestClose={() => setPinPrompt(null)}>
         <Pressable style={styles.profileBackdrop} onPress={() => setPinPrompt(null)}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={20} />
+          <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={20} />
           <View style={styles.pinCard}>
             <Text style={styles.pinTitle}>Locked chat</Text>
             <Text style={styles.pinSubtitle}>Enter your PIN to open {pinPrompt?.name}</Text>
@@ -844,7 +844,7 @@ export default function MainScreen() {
       {/* profile popup */}
       <Modal visible={!!profileChat} transparent animationType="fade" onRequestClose={() => setProfileChat(null)}>
         <Pressable style={styles.profileBackdrop} onPress={() => setProfileChat(null)}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={20} />
+          <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={20} />
           {profileChat && (
             <View style={styles.profileContent}>
               <Text style={styles.profileName}>{profileChat.name}</Text>

@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal, ImageBackground, Alert,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { ChevronLeft } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
@@ -14,7 +14,7 @@ const WALLPAPER_COLORS = ['#4f46e5', '#9333ea', '#f97316', '#0ea5a4', '#db2777',
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>
@@ -231,7 +231,7 @@ export default function ChatSettingsScreen() {
     <View style={styles.screen}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtnWrap}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={14} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={14} />
           <Text style={styles.backBtn}><ChevronLeft size={22} color="#0f0f1a" /></Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Chat Settings</Text>
@@ -320,7 +320,7 @@ export default function ChatSettingsScreen() {
 function FullscreenContent({ chat, onBack }) {
   return (
     <>
-      <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={20} />
+      <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={20} />
       <View style={styles.fullscreenHeader}>
         <TouchableOpacity onPress={onBack}>
           <Text style={styles.fullscreenBack}><ChevronLeft size={22} color="#0f0f1a" /></Text>

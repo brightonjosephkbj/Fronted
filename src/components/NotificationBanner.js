@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useNavigation } from '@react-navigation/native';
 import { useNotifications } from '../context/NotificationContext';
 
@@ -19,7 +19,7 @@ export default function NotificationBanner() {
     <Animated.View style={[styles.wrap, { transform: [{ translateY: slideAnim }] }]}>
       <TouchableOpacity activeOpacity={0.9} onPress={handlePress}>
         <View style={styles.glassOuter}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={22} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={22} />
           <View style={styles.tint} />
           <View style={styles.row}>
             <View style={[styles.dot, { backgroundColor: banner.type === 'online' ? '#22c55e' : '#4f46e5' }]} />

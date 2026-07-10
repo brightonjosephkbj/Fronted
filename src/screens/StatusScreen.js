@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
   TextInput, Animated,
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useNavigation } from '@react-navigation/native';
 import { ChevronLeft, Eye, Radio, Send, X, Plus, ChevronUp, ChevronDown } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
@@ -25,7 +25,7 @@ function timeAgo(unixSeconds) {
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>
@@ -87,7 +87,7 @@ function StoryViewer({ item, onClose }) {
       </View>
 
       <View style={styles.storyHeaderWrap}>
-        <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={20} />
+        <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={20} />
         <View style={styles.storyHeader}>
           <View style={styles.storyAvatar}><Text style={styles.storyAvatarText}>{item.name[0]}</Text></View>
           <Text style={styles.storyName}>{item.name}</Text>
@@ -100,7 +100,7 @@ function StoryViewer({ item, onClose }) {
       <View style={{ flex: 1 }} />
 
       <View style={styles.storyFooterWrap}>
-        <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={20} />
+        <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={20} />
         <View style={styles.storyReplyRow}>
           <TextInput
             placeholder={`Reply to ${item.name}...`}
@@ -254,7 +254,7 @@ export default function StatusScreen() {
     <View style={styles.screen}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtnWrap}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={14} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={14} />
           <ChevronLeft size={22} color="#0f0f1a" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Status</Text>

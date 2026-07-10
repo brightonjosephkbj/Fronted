@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Keychain from 'react-native-keychain';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useAuth } from '../context/AuthContext';
 
 const PIN_LENGTH = 4;
@@ -13,7 +13,7 @@ const KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, 'del'];
 function GlassCard({ style, children, blurAmount = 22, tint = 0.1 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="dark" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={intensity} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>

@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Mo
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import * as IntentLauncher from 'expo-intent-launcher';
-import { BlurView } from '@react-native-community/blur';
+import { BlurView } from 'expo-blur';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useFontPrefs } from '../context/FontPrefsContext';
@@ -13,7 +13,7 @@ import Avatar from '../components/Avatar';
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>
@@ -297,7 +297,7 @@ export default function SettingsScreen() {
     <ScrollView style={styles.screen} contentContainerStyle={{ padding: 14 }}>
       <View style={styles.headerRow}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtnWrap}>
-          <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={14} />
+          <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={14} />
           <ChevronLeft size={22} color="#0f0f1a" />
         </TouchableOpacity>
         <Text style={styles.title}>Settings</Text>
@@ -405,7 +405,7 @@ export default function SettingsScreen() {
             <Image source={{ uri: banner.value }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
           )}
           <TouchableOpacity style={styles.bannerCloseBtn} onPress={() => setBannerPreviewOpen(false)}>
-            <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={20} />
+            <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={20} />
             <X size={20} color="#0f0f1a" />
           </TouchableOpacity>
         </View>
