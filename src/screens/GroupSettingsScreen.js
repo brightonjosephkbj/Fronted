@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Alert, ActivityIndicator, Modal, Share } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Alert, ActivityIndicator, Modal, Share, FlatList, TextInput } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { ChevronLeft, BadgeCheck, X } from 'lucide-react-native';
+import { ChevronLeft, BadgeCheck, X, UserPlus, Check } from 'lucide-react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { useAuth } from '../context/AuthContext';
 
@@ -38,6 +38,11 @@ export default function GroupSettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [inviteVisible, setInviteVisible] = useState(false);
   const [inviteCode, setInviteCode] = useState(null);
+  const [addFriendsVisible, setAddFriendsVisible] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [friendSearch, setFriendSearch] = useState('');
+  const [selectedFriendIds, setSelectedFriendIds] = useState([]);
+  const [addingMembers, setAddingMembers] = useState(false);
 
   const myRole = members.find(m => m.id === user?.id)?.role;
   const isOwner = myRole === 'owner';
@@ -64,6 +69,8 @@ export default function GroupSettingsScreen() {
       setLoading(false);
     })();
   }, [load]);
+
+  const showAddFriendsRow = canManage || editPerm === 'all';
 
   function guardGroupId() {
     if (!groupId) {
@@ -158,6 +165,44 @@ export default function GroupSettingsScreen() {
       });
     } catch (e) {
       // user cancelled or share failed silently
+    }
+  }
+
+  async function openAddFriends() {
+    if (!guardGroupId()) return;
+    setFriendSearch('');
+    setSelectedFriendIds([]);
+    setAddFriendsVisible(true);
+    try {
+      const res = await apiRequest('/friends/list');
+      const memberIds = members.map(m => String(m.id));
+      const list = (res?.friends || [])
+        .filter(f => !memberIds.includes(String(f.id)))
+        .map(f => ({ id: f.id, username: f.username || f.handle || 'Friend', verified: f.verified }));
+      setFriends(list);
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't load your friends list.");
+    }
+  }
+
+  function toggleFriendSelect(id) {
+    setSelectedFriendIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  }
+
+  async function submitAddFriends() {
+    if (!selectedFriendIds.length) return;
+    setAddingMembers(true);
+    try {
+      await apiRequest(`/groups/${groupId}/members`, {
+        method: 'POST',
+        body: JSON.stringify({ member_ids: selectedFriendIds }),
+      });
+      setAddFriendsVisible(false);
+      await load();
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't add those friends to the group.");
+    } finally {
+      setAddingMembers(false);
     }
   }
 
@@ -273,7 +318,7 @@ export default function GroupSettingsScreen() {
           <Text style={styles.sectionTitle}>Members</Text>
           <GlassCard style={{ padding: 0 }}>
             {members.map((m, i) => (
-              <View key={m.id} style={[styles.row, i < members.length - 1 && styles.rowBorder]}>
+              <View key={m.id} style={[styles.row, (i < members.length - 1 || showAddFriendsRow) && styles.rowBorder]}>
                 <View style={[styles.memberDot, { backgroundColor: colorForId(m.id) }]}>
                   <Text style={styles.memberDotText}>{m.username?.[0]?.toUpperCase()}</Text>
                 </View>
@@ -300,6 +345,17 @@ export default function GroupSettingsScreen() {
                 )}
               </View>
             ))}
+            {showAddFriendsRow && (
+              <TouchableOpacity
+                style={styles.row}
+                onPress={openAddFriends}
+              >
+                <View style={styles.addFriendIconWrap}>
+                  <UserPlus size={16} color="#4f46e5" />
+                </View>
+                <Text style={styles.addFriendLabel}>Add Friends</Text>
+              </TouchableOpacity>
+            )}
           </GlassCard>
 
           <Text style={styles.sectionTitle}>Permissions</Text>
@@ -374,6 +430,60 @@ export default function GroupSettingsScreen() {
           </GlassCard>
         </View>
       </Modal>
+
+      <Modal visible={addFriendsVisible} transparent animationType="fade" onRequestClose={() => setAddFriendsVisible(false)}>
+        <View style={styles.modalBackdrop}>
+          <GlassCard style={styles.addFriendsCard} blurAmount={24} tint={0.55}>
+            <TouchableOpacity style={styles.closeBtn} onPress={() => setAddFriendsVisible(false)}>
+              <X size={20} color="#0f0f1a" />
+            </TouchableOpacity>
+            <Text style={styles.inviteTitle}>Add friends to {group.name || 'group'}</Text>
+            <TextInput
+              style={styles.friendSearchInput}
+              placeholder="Search friends..."
+              placeholderTextColor="#9b9ba8"
+              value={friendSearch}
+              onChangeText={setFriendSearch}
+            />
+            <FlatList
+              style={styles.friendList}
+              data={friends.filter(f => f.username.toLowerCase().includes(friendSearch.toLowerCase()))}
+              keyExtractor={f => String(f.id)}
+              ListEmptyComponent={<Text style={styles.friendEmptyText}>No friends to add.</Text>}
+              renderItem={({ item }) => {
+                const isSelected = selectedFriendIds.includes(item.id);
+                return (
+                  <TouchableOpacity style={styles.friendRow} onPress={() => toggleFriendSelect(item.id)}>
+                    <View style={[styles.memberDot, { backgroundColor: colorForId(item.id) }]}>
+                      <Text style={styles.memberDotText}>{item.username?.[0]?.toUpperCase()}</Text>
+                    </View>
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={styles.memberName}>{item.username}</Text>
+                      {item.verified && <BadgeCheck size={14} color={item.verified === 'cyan' ? '#0ea5e9' : '#9333ea'} />}
+                    </View>
+                    <View style={[styles.checkCircle, isSelected && styles.checkCircleSelected]}>
+                      {isSelected && <Check size={14} color="white" />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+            <TouchableOpacity
+              style={[styles.shareBtn, !selectedFriendIds.length && styles.shareBtnDisabled]}
+              onPress={submitAddFriends}
+              disabled={!selectedFriendIds.length || addingMembers}
+            >
+              {addingMembers ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.shareBtnText}>
+                  Add{selectedFriendIds.length ? ` (${selectedFriendIds.length})` : ''}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -408,6 +518,16 @@ const styles = StyleSheet.create({
   qrWrap: { backgroundColor: 'white', padding: 14, borderRadius: 16, marginVertical: 6 },
   inviteCodeText: { fontSize: 20, fontWeight: '800', letterSpacing: 2, color: '#4f46e5', marginTop: 4 },
   inviteLinkText: { fontSize: 11.5, color: '#6b6b7a', maxWidth: '100%' },
-  shareBtn: { marginTop: 12, backgroundColor: '#4f46e5', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 14 },
+  shareBtn: { marginTop: 12, backgroundColor: '#4f46e5', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 14, alignItems: 'center', justifyContent: 'center', minWidth: 120 },
+  shareBtnDisabled: { backgroundColor: '#c4c4cc' },
   shareBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
+  addFriendIconWrap: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', marginRight: 10, backgroundColor: 'rgba(79,70,229,0.12)' },
+  addFriendLabel: { fontWeight: '600', color: '#4f46e5' },
+  addFriendsCard: { width: '100%', maxHeight: '75%', padding: 24, gap: 10 },
+  friendSearchInput: { backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, fontSize: 14, color: '#0f0f1a', marginTop: 4 },
+  friendList: { maxHeight: 280, marginVertical: 6 },
+  friendRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10 },
+  friendEmptyText: { textAlign: 'center', color: '#6b6b7a', fontSize: 13, paddingVertical: 20 },
+  checkCircle: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: '#c4c4cc', alignItems: 'center', justifyContent: 'center' },
+  checkCircleSelected: { backgroundColor: '#4f46e5', borderColor: '#4f46e5' },
 });
