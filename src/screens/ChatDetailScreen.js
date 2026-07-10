@@ -8,7 +8,7 @@ import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorde
 import * as FileSystem from 'expo-file-system';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Pdf from 'react-native-pdf';
-import FileViewer from 'react-native-file-viewer';
+import * as Sharing from 'expo-sharing';
 import Clipboard from '@react-native-clipboard/clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -67,7 +67,7 @@ function BubbleWrapper({ children, style }) {
 function GlassView({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[{ overflow: 'hidden' }, style]}>
-      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={blurAmount} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>
@@ -235,7 +235,7 @@ async function openDocument(item, setPdfViewer) {
   }
   if (item.fileUri) {
     try {
-      await FileViewer.open(item.fileUri, { showOpenWithDialog: true });
+      await Sharing.shareAsync(item.fileUri, { dialogTitle: 'Open file' });
     } catch (e) {
       // no app available for this file type — fail silently for now,
       // could surface a toast here later
@@ -991,7 +991,7 @@ export default function ChatDetailScreen() {
               style={{ flex: 1 }}
               onError={() => {
                 if (pdfViewer?.fileUri) {
-                  FileViewer.open(pdfViewer.fileUri, { showOpenWithDialog: true }).catch(() => {});
+                  Sharing.shareAsync(pdfViewer.fileUri, { mimeType: 'application/pdf', dialogTitle: 'Open PDF' }).catch(() => {});
                 }
                 setPdfViewer(null);
               }}

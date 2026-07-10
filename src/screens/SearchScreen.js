@@ -10,7 +10,7 @@ import { ChevronLeft } from 'lucide-react-native';
 function GlassCard({ style, children, blurAmount = 18 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={blurAmount} />
       <View style={styles.glassTint} />
       {children}
     </View>

@@ -13,7 +13,7 @@ const KEYS = [1, 2, 3, 4, 5, 6, 7, 8, 9, '', 0, 'del'];
 function GlassCard({ style, children, blurAmount = 22, tint = 0.1 }) {
   return (
     <View style={[styles.glassWrap, style]}>
-      <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={intensity} />
+      <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={blurAmount} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>

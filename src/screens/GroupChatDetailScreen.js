@@ -10,7 +10,7 @@ import { useSocket } from '../context/SocketContext';
 import { BadgeCheck, ChevronLeft, FileText, Mic, Phone, Plus, Send, Settings, Video } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
-import FileViewer from 'react-native-file-viewer';
+import * as Sharing from 'expo-sharing';
 
 const DEFAULT_WALLPAPER = require('../../assets/wallpapers/default-papercut.png');
 const WALLPAPER_CACHE_KEY = 'b24_default_wallpaper';
@@ -48,7 +48,7 @@ const ATTACH_GRID = [
 function GlassView({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[{ overflow: 'hidden' }, style]}>
-      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={intensity} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={blurAmount} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>
@@ -265,7 +265,7 @@ export default function GroupChatDetailScreen() {
 
   async function openGroupDocument(url, name) {
     try {
-      await FileViewer.open(url, { showOpenWithDialog: true });
+      await Sharing.shareAsync(url, { dialogTitle: 'Open file' });
     } catch (e) {
       Alert.alert('Error', "Couldn't open that file.");
     }

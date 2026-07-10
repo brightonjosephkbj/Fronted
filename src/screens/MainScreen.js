@@ -62,7 +62,7 @@ function TopBarBackground({ bg }) {
 function GlassView({ style, children, blurType = 'light', blurAmount = 18 }) {
   return (
     <View style={[{ overflow: 'hidden' }, style]}>
-      <BlurView style={StyleSheet.absoluteFill} tint={tint} intensity={intensity} />
+      <BlurView style={StyleSheet.absoluteFill} tint={blurType} intensity={blurAmount} />
       <View style={styles.glassTint} />
       {children}
     </View>
