@@ -4,10 +4,15 @@ import {
   KeyboardAvoidingView, Platform, ActivityIndicator,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import Video from 'react-native-video';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useAuth } from '../context/AuthContext';
 
 export default function AuthScreen() {
+  const authBgPlayer = useVideoPlayer(require('../../assets/videos/login-bg.mp4'), (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
   const { login, apiRequest } = useAuth();
   const [tab, setTab] = useState('login');
   const [loading, setLoading] = useState(false);
@@ -77,7 +82,7 @@ export default function AuthScreen() {
 
   return (
     <View style={styles.authScreenWrap}>
-      <Video source={require('../../assets/videos/login-bg.mp4')} style={StyleSheet.absoluteFill} resizeMode="cover" repeat muted paused={false} />
+      <VideoView player={authBgPlayer} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
       <View style={styles.videoOverlay} />
     <KeyboardAvoidingView
       style={styles.contentWrap}

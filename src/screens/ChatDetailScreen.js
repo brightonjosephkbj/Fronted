@@ -6,7 +6,7 @@ import {
 import { BlurView } from 'expo-blur';
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
-import Video from 'react-native-video';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Pdf from 'react-native-pdf';
 import FileViewer from 'react-native-file-viewer';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -245,6 +245,20 @@ async function openDocument(item, setPdfViewer) {
 
 function msgMetaKey(chatId) {
   return `b24_msg_meta_${chatId}`;
+}
+
+function ChatVideoPlayer({ uri }) {
+  const player = useVideoPlayer({ uri }, (p) => {
+    p.play();
+  });
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFillObject}
+      contentFit="contain"
+      nativeControls
+    />
+  );
 }
 
 export default function ChatDetailScreen() {
@@ -948,13 +962,7 @@ export default function ChatDetailScreen() {
       <Modal visible={!!videoPlayer} animationType="fade" onRequestClose={() => setVideoPlayer(null)}>
         <View style={styles.videoPlayerScreen}>
           {videoPlayer?.fileUri ? (
-            <Video
-              source={{ uri: videoPlayer.fileUri }}
-              style={StyleSheet.absoluteFillObject}
-              resizeMode="contain"
-              controls
-              paused={false}
-            />
+            <ChatVideoPlayer key={videoPlayer.fileUri} uri={videoPlayer.fileUri} />
           ) : (
             <Text style={{ color: 'white', textAlign: 'center', marginTop: 100 }}>Video unavailable</Text>
           )}

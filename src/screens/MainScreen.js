@@ -4,7 +4,7 @@ import {
   Modal, Pressable, PanResponder, Animated, ScrollView, Easing, Alert, Share,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
-import Video from 'react-native-video';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { BadgeCheck } from 'lucide-react-native';
@@ -38,18 +38,21 @@ function resolveBackground(bg) {
 
 function TopBarBackground({ bg }) {
   const resolved = resolveBackground(bg);
+  const bgVideoPlayer = useVideoPlayer(resolved.type === 'video' ? { uri: resolved.value } : null, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
   if (resolved.type === 'photo') {
     return <Image source={{ uri: resolved.value }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />;
   }
   if (resolved.type === 'video') {
     return (
-      <Video
-        source={{ uri: resolved.value }}
+      <VideoView
+        player={bgVideoPlayer}
         style={StyleSheet.absoluteFillObject}
-        resizeMode="cover"
-        repeat
-        muted
-        paused={false}
+        contentFit="cover"
+        nativeControls={false}
       />
     );
   }
