@@ -34,7 +34,6 @@
     },
     "plugins": [
       "expo-status-bar",
-      "./plugins/withWebRTC.js",
       "./plugins/withReleaseSigning.js",
       "expo-image-picker",
       "expo-document-picker",
