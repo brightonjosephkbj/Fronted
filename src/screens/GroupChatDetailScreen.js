@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList, TextInput, ImageBackground, Image, Alert, Linking,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
@@ -63,6 +65,7 @@ function typingLabel(names) {
 }
 
 export default function GroupChatDetailScreen() {
+  const insets = useSafeAreaInsets();
   const route = useRoute();
   const navigation = useNavigation();
   const { apiRequest, apiUpload, user, token } = useAuth();
@@ -325,6 +328,11 @@ export default function GroupChatDetailScreen() {
 
   return (
     <WallpaperBackground color={wallpaperColor} style={styles.screen}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
+      >
       <View style={styles.headerOuter}>
         <GlassView style={styles.headerInner} blurAmount={18}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -381,7 +389,7 @@ export default function GroupChatDetailScreen() {
               </View>
             </GlassView>
           )}
-          <View style={styles.inputOuter}>
+          <View style={[styles.inputOuter, { paddingBottom: Math.max(14, insets.bottom + 8) }]}>
             <GlassView style={styles.inputInner} blurAmount={18}>
               <TouchableOpacity style={styles.attachToggleBtn} onPress={() => setAttachOpen(v => !v)}>
                 <Plus size={18} color="#0f0f1a" />
@@ -401,7 +409,7 @@ export default function GroupChatDetailScreen() {
           </View>
         </>
       ) : (
-        <View style={styles.inputOuter}>
+        <View style={[styles.inputOuter, { paddingBottom: Math.max(14, insets.bottom + 8) }]}>
           <GlassView style={styles.restrictedNotice} blurAmount={18}>
             <Text style={styles.restrictedNoticeText}>
               {isChannel ? 'Only admins can post in this channel.' : 'Only admins can send messages in this group.'}
@@ -409,6 +417,7 @@ export default function GroupChatDetailScreen() {
           </GlassView>
         </View>
       )}
+      </KeyboardAvoidingView>
     </WallpaperBackground>
   );
 }

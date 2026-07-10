@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList, TextInput,
   Modal, Pressable, Animated, ImageBackground, Image, Platform, Alert, ActivityIndicator,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule, setAudioModeAsync } from 'expo-audio';
@@ -13,6 +14,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth, API_BASE } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
@@ -262,6 +264,7 @@ function ChatVideoPlayer({ uri }) {
 }
 
 export default function ChatDetailScreen() {
+  const insets = useSafeAreaInsets();
   const route = useRoute();
   const navigation = useNavigation();
   const { apiRequest, apiUpload, user, token } = useAuth();
@@ -481,7 +484,8 @@ export default function ChatDetailScreen() {
         media_url: result.url,
       });
     } catch (e) {
-      Alert.alert('Upload failed', "Couldn't send that attachment. Check your connection and try again.");
+      console.log('ATTACHMENT UPLOAD ERROR:', e);
+      Alert.alert('Upload failed', String(e?.message || e));
     }
   }
 
@@ -499,7 +503,8 @@ export default function ChatDetailScreen() {
         media_url: result.file_id,
       });
     } catch (e) {
-      Alert.alert('Upload failed', "Couldn't send that video. Check your connection and try again.");
+      console.log('VIDEO UPLOAD ERROR:', e);
+      Alert.alert('Upload failed', String(e?.message || e));
     }
   }
 
@@ -823,6 +828,11 @@ export default function ChatDetailScreen() {
 
   return (
     <WallpaperBackground color={wallpaperColor} style={styles.screen}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top + 44 : 0}
+      >
       <View style={styles.headerOuter}>
         <GlassView style={styles.headerInner} blurAmount={18}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -900,7 +910,7 @@ export default function ChatDetailScreen() {
         </GlassView>
       )}
 
-      <View style={styles.inputOuter}>
+      <View style={[styles.inputOuter, { paddingBottom: Math.max(14, insets.bottom + 8) }]}>
         <GlassView style={styles.inputInner} blurAmount={18}>
           <TouchableOpacity style={styles.inputIconBtn} onPress={() => setAttachOpen(v => !v)}>
             {attachOpen ? <X size={17} color="#0f0f1a" /> : <Plus size={17} color="#0f0f1a" />}
@@ -924,6 +934,7 @@ export default function ChatDetailScreen() {
           </TouchableOpacity>
         </GlassView>
       </View>
+      </KeyboardAvoidingView>
 
       {/* long-press action sheet */}
       <Modal visible={!!actionMsg} transparent animationType="fade" onRequestClose={() => setActionMsg(null)}>

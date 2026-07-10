@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, FlatList,
+  View, Text, TextInput, TouchableOpacity, StyleSheet, ScrollView, FlatList, Image,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { BlurView } from 'expo-blur';
+import * as ImagePicker from 'expo-image-picker';
 import { Camera, Check, ChevronLeft } from 'lucide-react-native';
 
 const CONFIG = {
@@ -28,12 +29,7 @@ const CONFIG = {
   },
 };
 
-const FRIENDS = [
-  { id: '1', name: 'Derrick', handle: 'derrick@b24.me', color: '#f97316' },
-  { id: '2', name: 'Rita', handle: 'rita_k@b24.me', color: '#db2777' },
-  { id: '3', name: 'Kato', handle: 'kato@b24.me', color: '#3b82f6' },
-  { id: '4', name: 'Mercy', handle: 'mercy@b24.me', color: '#16a34a' },
-];
+const FRIEND_COLORS = ['#f97316', '#db2777', '#3b82f6', '#16a34a', '#9333ea', '#0891b2', '#c026d3', '#ef4444'];
 
 function GlassCard({ style, children }) {
   return (
@@ -55,12 +51,45 @@ export default function CreateNewScreen() {
   const [step, setStep] = useState('details'); // 'details' | 'members'
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [photoUri, setPhotoUri] = useState(null);
   const [creating, setCreating] = useState(false);
   const [createdEntity, setCreatedEntity] = useState(null);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState([]);
+  const [friends, setFriends] = useState([]);
 
-  const filteredFriends = FRIENDS.filter(f =>
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiRequest('/friends/list');
+        const list = (data?.friends || []).map((f, i) => ({
+          id: String(f.id),
+          name: f.username || f.handle || 'Friend',
+          handle: f.handle || '',
+          color: FRIEND_COLORS[i % FRIEND_COLORS.length],
+        }));
+        setFriends(list);
+      } catch (e) {
+        // offline — leave the list empty rather than showing fake people
+      }
+    })();
+  }, [apiRequest]);
+
+  async function pickGroupPhoto() {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setPhotoUri(result.assets[0].uri);
+    }
+  }
+
+  const filteredFriends = friends.filter(f =>
     f.name.toLowerCase().includes(search.toLowerCase()) ||
     f.handle.toLowerCase().includes(search.toLowerCase())
   );
@@ -120,10 +149,16 @@ export default function CreateNewScreen() {
         </View>
 
         <GlassCard style={styles.card}>
-          <View style={[styles.avatar, { backgroundColor: cfg.color }]}>
-            {name.trim() ? <Text style={styles.avatarText}>{name.trim()[0].toUpperCase()}</Text> : <Camera size={26} color="white" />}
-          </View>
-          <Text style={styles.avatarHint}>Tap to add photo</Text>
+          <TouchableOpacity onPress={pickGroupPhoto}>
+            {photoUri ? (
+              <Image source={{ uri: photoUri }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, { backgroundColor: cfg.color }]}>
+                {name.trim() ? <Text style={styles.avatarText}>{name.trim()[0].toUpperCase()}</Text> : <Camera size={26} color="white" />}
+              </View>
+            )}
+          </TouchableOpacity>
+          <Text style={styles.avatarHint}>{photoUri ? 'Tap to change photo' : 'Tap to add photo'}</Text>
         </GlassCard>
 
         <GlassCard style={styles.card}>

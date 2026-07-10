@@ -108,6 +108,11 @@ function Avatar({ name, color, size = 46, ring, imageUri, verified }) {
 function ChatRow({ chat, onPress, onLongPress, onOpenProfile, onArchive, onMute }) {
   const translateX = useState(new Animated.Value(0))[0];
   const SWIPE_THRESHOLD = 60;
+  const swipeBgOpacity = translateX.interpolate({
+    inputRange: [-90, -12, 0, 12, 90],
+    outputRange: [1, 0, 0, 0, 1],
+    extrapolate: 'clamp',
+  });
   const panResponder = PanResponder.create({
     onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dx) > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 2,
     onPanResponderMove: (_, g) => translateX.setValue(Math.max(-90, Math.min(90, g.dx))),
@@ -120,11 +125,11 @@ function ChatRow({ chat, onPress, onLongPress, onOpenProfile, onArchive, onMute 
 
   return (
     <View>
-      <View style={styles.swipeBgWrap} pointerEvents="none">
+      <Animated.View style={[styles.swipeBgWrap, { opacity: swipeBgOpacity }]} pointerEvents="none">
         <View style={styles.swipeBgLeft}><Text style={styles.swipeBgText}>Archive</Text></View>
         <View style={styles.swipeBgRight}><Text style={styles.swipeBgText}>{chat.muted ? 'Unmute' : 'Mute'}</Text></View>
-      </View>
-      <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX }] }}>
+      </Animated.View>
+      <Animated.View {...panResponder.panHandlers} style={{ transform: [{ translateX }], backgroundColor: '#fff' }}>
         <TouchableOpacity
           style={styles.chatRow}
           onPress={() => onPress(chat)}
