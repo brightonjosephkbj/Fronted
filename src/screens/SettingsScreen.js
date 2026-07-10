@@ -39,7 +39,7 @@ function verifiedColor(tick) {
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { user, logout, apiRequest, apiUpload, updateUserAvatar } = useAuth();
+  const { user, logout, apiRequest, apiUpload, apiUploadFile, updateUserAvatar } = useAuth();
   const { fontSize, setFontSize, fontFamily, setFontFamily, sizeOptions, familyOptions } = useFontPrefs();
 
   const [lastSeen, setLastSeen] = useState(true);
@@ -185,10 +185,11 @@ export default function SettingsScreen() {
     if (result.canceled || !result.assets?.[0]?.uri) return;
     const uri = result.assets[0].uri;
     try {
-      const formData = new FormData();
-      formData.append('file', { uri, name: 'avatar.jpg', type: 'image/jpeg' });
-      formData.append('type', 'avatar');
-      const res = await apiUpload('/media/upload', formData);
+      const res = await apiUploadFile('/media/upload', uri, {
+        filename: 'avatar.jpg',
+        mimeType: 'image/jpeg',
+        fields: { type: 'avatar' },
+      });
       await updateUserAvatar(res.url);
       try {
         await apiRequest('/profile/avatar', { method: 'POST', body: JSON.stringify({ avatar_url: res.url }) });

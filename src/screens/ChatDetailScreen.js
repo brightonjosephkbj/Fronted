@@ -267,7 +267,7 @@ export default function ChatDetailScreen() {
   const insets = useSafeAreaInsets();
   const route = useRoute();
   const navigation = useNavigation();
-  const { apiRequest, apiUpload, user, token } = useAuth();
+  const { apiRequest, apiUpload, apiUploadFile, user, token } = useAuth();
   const { socket } = useSocket();
   const chat = route.params?.chat || { id: 'unknown', name: 'Unknown', color: '#9333ea' };
   const recipientId = parseInt(chat.id, 10);
@@ -472,10 +472,11 @@ export default function ChatDetailScreen() {
   async function uploadAndSendAttachment(uri, filename, mimeType, mediaType) {
     if (!socketRef.current) return;
     try {
-      const formData = new FormData();
-      formData.append('file', { uri, name: filename, type: mimeType || 'application/octet-stream' });
-      formData.append('type', mediaType);
-      const result = await apiUpload('/media/upload', formData);
+      const result = await apiUploadFile('/media/upload', uri, {
+        filename,
+        mimeType: mimeType || 'application/octet-stream',
+        fields: { type: mediaType },
+      });
       socketRef.current.emit('send_message', {
         token,
         recipient_id: recipientId,
@@ -492,9 +493,10 @@ export default function ChatDetailScreen() {
   async function uploadAndSendLazyVideo(uri, filename, mimeType) {
     if (!socketRef.current) return;
     try {
-      const formData = new FormData();
-      formData.append('file', { uri, name: filename, type: mimeType || 'video/mp4' });
-      const result = await apiUpload('/files/upload', formData);
+      const result = await apiUploadFile('/files/upload', uri, {
+        filename,
+        mimeType: mimeType || 'video/mp4',
+      });
       socketRef.current.emit('send_message', {
         token,
         recipient_id: recipientId,
@@ -612,11 +614,11 @@ export default function ChatDetailScreen() {
       const uri = audioRecorder.uri;
       if (!uri || !socketRef.current) return;
 
-      const formData = new FormData();
-      formData.append('file', { uri, name: 'voice.m4a', type: 'audio/m4a' });
-      formData.append('type', 'voice');
-
-      const res = await apiUpload('/media/upload', formData);
+      const res = await apiUploadFile('/media/upload', uri, {
+        filename: 'voice.m4a',
+        mimeType: 'audio/m4a',
+        fields: { type: 'voice' },
+      });
       const content = res?.transcription?.trim() || 'Voice message';
 
       socketRef.current.emit('send_message', {

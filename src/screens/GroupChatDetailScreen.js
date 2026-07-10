@@ -68,7 +68,7 @@ export default function GroupChatDetailScreen() {
   const insets = useSafeAreaInsets();
   const route = useRoute();
   const navigation = useNavigation();
-  const { apiRequest, apiUpload, user, token } = useAuth();
+  const { apiRequest, apiUpload, apiUploadFile, user, token } = useAuth();
   const { socket } = useSocket();
   const group = route.params?.chat || { id: 'group', name: 'Group', color: '#4f46e5', onlineCount: 0 };
   const groupId = group.id;
@@ -212,10 +212,11 @@ export default function GroupChatDetailScreen() {
   async function uploadAndSendGroupAttachment(uri, filename, mimeType, mediaType) {
     if (!socketRef.current) return;
     try {
-      const formData = new FormData();
-      formData.append('file', { uri, name: filename, type: mimeType || 'application/octet-stream' });
-      formData.append('type', mediaType);
-      const result = await apiUpload('/media/upload', formData);
+      const result = await apiUploadFile('/media/upload', uri, {
+        filename,
+        mimeType: mimeType || 'application/octet-stream',
+        fields: { type: mediaType },
+      });
       socketRef.current.emit(EVENT_SEND_GROUP_MESSAGE, {
         token,
         group_id: groupId,
