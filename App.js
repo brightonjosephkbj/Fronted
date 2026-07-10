@@ -1,3 +1,4 @@
+import 'react-native-gesture-handler';
 
 if (!__DEV__) {
   const defaultHandler = ErrorUtils.getGlobalHandler();
@@ -14,6 +15,7 @@ if (!__DEV__) {
 import React, { useEffect } from 'react';
 import { Linking, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { navigationRef } from './src/navigation/navigationRef';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { slideFromRight, slideFromBottom, fadeTransition } from './src/navigation/screenOptions';
@@ -107,6 +109,7 @@ import PointsScreen from './src/screens/PointsScreen';
 
 export default function App() {
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <AuthProvider>
       <FontPrefsProvider>
       <NotificationProvider>
@@ -118,5 +121,6 @@ export default function App() {
     </NotificationProvider>
       </FontPrefsProvider>
     </AuthProvider>
+    </GestureHandlerRootView>
   );
 }

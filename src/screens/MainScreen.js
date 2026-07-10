@@ -11,6 +11,7 @@ import { BadgeCheck } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useNavigation } from '@react-navigation/native';
+import { Swipeable } from 'react-native-gesture-handler';
 
 const FOLDERS = ['All', 'Business', 'Groups', 'Favourites'];
 
@@ -901,9 +902,8 @@ const styles = StyleSheet.create({
   archivedToggle: { paddingHorizontal: 20, paddingBottom: 8 },
   archivedToggleText: { fontSize: 12, fontWeight: '700', color: '#4f46e5' },
   chatRow: { flexDirection: 'row', alignItems: 'center', padding: 12, paddingHorizontal: 20, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#f0f0f3' },
-  swipeBgWrap: { ...StyleSheet.absoluteFillObject, flexDirection: 'row' },
-  swipeBgLeft: { flex: 1, backgroundColor: '#16a34a', justifyContent: 'center', paddingHorizontal: 22 },
-  swipeBgRight: { flex: 1, backgroundColor: '#f59e0b', justifyContent: 'center', alignItems: 'flex-end', paddingHorizontal: 22 },
+  swipeBgLeft: { width: 90, backgroundColor: '#16a34a', justifyContent: 'center', alignItems: 'center' },
+  swipeBgRight: { width: 90, backgroundColor: '#f59e0b', justifyContent: 'center', alignItems: 'center' },
   swipeBgText: { color: 'white', fontWeight: '700', fontSize: 12.5 },
   pinIcon: { fontSize: 11 },
   chatName: { fontSize: 15, fontWeight: '700', color: '#0f0f1a', flexShrink: 1 },
