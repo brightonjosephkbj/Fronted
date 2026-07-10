@@ -29,7 +29,9 @@
         "android.permission.WAKE_LOCK",
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.SYSTEM_ALERT_WINDOW",
-        "android.permission.REQUEST_INSTALL_PACKAGES"
+        "android.permission.REQUEST_INSTALL_PACKAGES",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "plugins": [
@@ -45,8 +47,13 @@
           "resizeMode": "contain",
           "backgroundColor": "#e7f1fa"
         }
-      ]
+      ],
+      "expo-audio",
+      "expo-video"
     ],
-    "scheme": "b24meet"
+    "scheme": "b24meet",
+    "ios": {
+      "bundleIdentifier": "com.b24.messenger"
+    }
   }
 }

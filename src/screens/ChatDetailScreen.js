@@ -4,7 +4,7 @@ import {
   Modal, Pressable, Animated, ImageBackground, Image, Platform, Alert, ActivityIndicator,
 } from 'react-native';
 import { BlurView } from '@react-native-community/blur';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 import Video from 'react-native-video';
 import Pdf from 'react-native-pdf';
@@ -106,52 +106,31 @@ function ShimmerTypingBubble() {
 }
 
 function VoiceNoteBubble({ fromMe, uri }) {
-  const [playing, setPlaying] = useState(false);
-  const [durationText, setDurationText] = useState('0:00');
-  const soundRef = useRef(null);
+  const player = useAudioPlayer(uri ? { uri } : null);
+  const status = useAudioPlayerStatus(player);
   const bars = useRef(Array.from({ length: 18 }, (_, i) => 4 + ((i * 37) % 14))).current;
 
-  useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync().catch(() => {});
-    };
-  }, []);
-
-  function formatMs(ms) {
-    const totalSec = Math.floor((ms || 0) / 1000);
+  function formatSec(sec) {
+    const totalSec = Math.floor(sec || 0);
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
-  async function togglePlay() {
-    if (!uri) return;
-    if (playing) {
-      await soundRef.current?.pauseAsync();
-      setPlaying(false);
-      return;
+  useEffect(() => {
+    if (status.didJustFinish) {
+      player.seekTo(0);
     }
+  }, [status.didJustFinish]);
+
+  function togglePlay() {
+    if (!uri) return;
     try {
-      if (!soundRef.current) {
-        const { sound, status } = await Audio.Sound.createAsync(
-          { uri },
-          { shouldPlay: true },
-          (status) => {
-            if (status.isLoaded) {
-              setDurationText(formatMs(status.durationMillis));
-              if (status.didJustFinish) {
-                setPlaying(false);
-                sound.setPositionAsync(0);
-              }
-            }
-          }
-        );
-        soundRef.current = sound;
-        if (status.isLoaded) setDurationText(formatMs(status.durationMillis));
+      if (status.playing) {
+        player.pause();
       } else {
-        await soundRef.current.playAsync();
+        player.play();
       }
-      setPlaying(true);
     } catch (e) {
       Alert.alert('Error', "Couldn't play this voice note.");
     }
@@ -160,14 +139,14 @@ function VoiceNoteBubble({ fromMe, uri }) {
   return (
     <View style={styles.voiceRow}>
       <TouchableOpacity onPress={togglePlay} style={[styles.voicePlayBtn, { backgroundColor: fromMe ? 'rgba(255,255,255,0.9)' : '#0f0f1a' }]}>
-        {playing ? <Pause size={11} color={fromMe ? '#4f46e5' : 'white'} /> : <Play size={11} color={fromMe ? '#4f46e5' : 'white'} />}
+        {status.playing ? <Pause size={11} color={fromMe ? '#4f46e5' : 'white'} /> : <Play size={11} color={fromMe ? '#4f46e5' : 'white'} />}
       </TouchableOpacity>
       <View style={styles.voiceBars}>
         {bars.map((h, i) => (
-          <View key={i} style={[styles.voiceBar, { height: playing ? h + 4 : h, backgroundColor: fromMe ? 'rgba(255,255,255,0.7)' : '#c7c7d1' }]} />
+          <View key={i} style={[styles.voiceBar, { height: status.playing ? h + 4 : h, backgroundColor: fromMe ? 'rgba(255,255,255,0.7)' : '#c7c7d1' }]} />
         ))}
       </View>
-      <Text style={[styles.voiceDuration, { color: fromMe ? 'rgba(255,255,255,0.75)' : '#9ca3af' }]}>{durationText}</Text>
+      <Text style={[styles.voiceDuration, { color: fromMe ? 'rgba(255,255,255,0.75)' : '#9ca3af' }]}>{status.duration != null ? formatSec(status.duration) : '0:00'}</Text>
     </View>
   );
 }
@@ -312,7 +291,7 @@ export default function ChatDetailScreen() {
   const popScale = useRef(new Animated.Value(0)).current;
   const [isRecording, setIsRecording] = useState(false);
   const [downloadingIds, setDownloadingIds] = useState([]);
-  const recordingRef = useRef(null);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const lastTapRef = useRef({ id: null, time: 0 });
   const socketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -592,14 +571,14 @@ export default function ChatDetailScreen() {
 
   async function startRecording() {
     try {
-      const perm = await Audio.requestPermissionsAsync();
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
         Alert.alert('Microphone access needed', 'Enable microphone permission to record voice notes.');
         return;
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      recordingRef.current = recording;
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setIsRecording(true);
     } catch (e) {
       Alert.alert('Error', "Couldn't start recording.");
@@ -607,13 +586,11 @@ export default function ChatDetailScreen() {
   }
 
   async function stopRecordingAndSend() {
-    const recording = recordingRef.current;
-    if (!recording) { setIsRecording(false); return; }
+    if (!isRecording) { setIsRecording(false); return; }
     setIsRecording(false);
-    recordingRef.current = null;
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
       if (!uri || !socketRef.current) return;
 
       const formData = new FormData();
