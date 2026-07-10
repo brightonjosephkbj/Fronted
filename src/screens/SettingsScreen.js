@@ -7,7 +7,8 @@ import { BlurView } from 'expo-blur';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useFontPrefs } from '../context/FontPrefsContext';
-import { ChevronLeft, ChevronRight, X } from 'lucide-react-native';
+import { ChevronLeft, ChevronRight, X, Camera } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import Avatar from '../components/Avatar';
 
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
@@ -38,7 +39,7 @@ function verifiedColor(tick) {
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { user, logout, apiRequest } = useAuth();
+  const { user, logout, apiRequest, apiUpload, updateUserAvatar } = useAuth();
   const { fontSize, setFontSize, fontFamily, setFontFamily, sizeOptions, familyOptions } = useFontPrefs();
 
   const [lastSeen, setLastSeen] = useState(true);
@@ -171,6 +172,31 @@ export default function SettingsScreen() {
       await apiRequest('/profile/banner', { method: 'POST', body: JSON.stringify(newBanner) });
     } catch (e) {
       // backend doesn't have a banner endpoint yet - it still applies locally
+    }
+  }
+
+  async function pickAvatar() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Photo access needed', 'Enable photo library permission to change your profile picture.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8, allowsEditing: true, aspect: [1, 1] });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    const uri = result.assets[0].uri;
+    try {
+      const formData = new FormData();
+      formData.append('file', { uri, name: 'avatar.jpg', type: 'image/jpeg' });
+      formData.append('type', 'avatar');
+      const res = await apiUpload('/media/upload', formData);
+      await updateUserAvatar(res.url);
+      try {
+        await apiRequest('/profile/avatar', { method: 'POST', body: JSON.stringify({ avatar_url: res.url }) });
+      } catch (e) {
+        // backend doesn't have a dedicated avatar endpoint yet - it still applies locally
+      }
+    } catch (e) {
+      Alert.alert('Error', "Couldn't update your profile picture.");
     }
   }
 
@@ -312,11 +338,16 @@ export default function SettingsScreen() {
           <Image source={{ uri: banner.value }} style={StyleSheet.absoluteFillObject} />
         )}
         <GlassCard style={styles.profileInner} tint={0.4}>
-          <Avatar
-            uri={user?.avatar_url}
-            letter={user?.username?.[0]}
-            size={76}
-          />
+          <TouchableOpacity activeOpacity={0.85} onPress={pickAvatar} style={{ position: 'relative' }}>
+            <Avatar
+              uri={user?.avatar_url}
+              letter={user?.username?.[0]}
+              size={76}
+            />
+            <View style={styles.avatarCameraBadge}>
+              <Camera size={14} color="white" />
+            </View>
+          </TouchableOpacity>
           <Text style={styles.name}>{user?.username || 'you'}</Text>
           <Text style={styles.username}>{user?.username}@b24.me</Text>
           <Text style={styles.bio}>{user?.bio || "Hey there, I'm using B24"}</Text>
@@ -665,6 +696,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 16, fontWeight: '700' },
   profileCard: { borderRadius: 20, overflow: 'hidden', marginBottom: 16 },
   profileInner: { padding: 22, alignItems: 'center', gap: 6, borderRadius: 20, marginBottom: 0 },
+  avatarCameraBadge: { position: 'absolute', bottom: 0, right: 0, width: 24, height: 24, borderRadius: 12, backgroundColor: '#4338ca', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'white' },
   avatarWrap: { position: 'relative' },
   avatarImg: { width: 76, height: 76, borderRadius: 38 },
   verifiedBadge: {

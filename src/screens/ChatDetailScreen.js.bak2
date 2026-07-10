@@ -1,21 +1,37 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, FlatList, TextInput,
-  Modal, Pressable, Animated, ImageBackground, Image, Platform, Alert,
+  Modal, Pressable, Animated, ImageBackground, Image, Platform, Alert, ActivityIndicator,
 } from 'react-native';
-import { BlurView } from '@react-native-community/blur';
-import { Audio } from 'expo-av';
-import Video from 'react-native-video';
+import { BlurView } from 'expo-blur';
+import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule, setAudioModeAsync } from 'expo-audio';
+import * as FileSystem from 'expo-file-system';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Pdf from 'react-native-pdf';
-import FileViewer from 'react-native-file-viewer';
+import * as Sharing from 'expo-sharing';
 import Clipboard from '@react-native-clipboard/clipboard';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, API_BASE } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
 import { BadgeCheck, Check, CheckCheck, ChevronLeft, FileText, Heart, Mic, Pause, Phone, Play, Plus, Send, Settings, Star, Video as VideoIcon, X } from 'lucide-react-native';
 
 const DEFAULT_WALLPAPER = require('../../assets/wallpapers/default-papercut.png');
+const WALLPAPER_CACHE_KEY = 'b24_default_wallpaper';
+const CHAT_WALLPAPER_KEY = 'b24_chat_wallpapers';
+
+function WallpaperBackground({ color, style, children }) {
+  if (color) {
+    return <View style={[style, { backgroundColor: color }]}>{children}</View>;
+  }
+  return (
+    <ImageBackground source={DEFAULT_WALLPAPER} style={style} resizeMode="cover">
+      {children}
+    </ImageBackground>
+  );
+}
 
 function verifiedColor(tick) {
   if (tick === 'cyan') return '#06b6d4';
@@ -51,7 +67,7 @@ function BubbleWrapper({ children, style }) {
 function GlassView({ style, children, blurAmount = 18, tint = 0.35 }) {
   return (
     <View style={[{ overflow: 'hidden' }, style]}>
-      <BlurView style={StyleSheet.absoluteFill} blurType="light" blurAmount={blurAmount} />
+      <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={blurAmount} />
       <View style={[StyleSheet.absoluteFillObject, { backgroundColor: `rgba(255,255,255,${tint})` }]} />
       {children}
     </View>
@@ -90,52 +106,31 @@ function ShimmerTypingBubble() {
 }
 
 function VoiceNoteBubble({ fromMe, uri }) {
-  const [playing, setPlaying] = useState(false);
-  const [durationText, setDurationText] = useState('0:00');
-  const soundRef = useRef(null);
+  const player = useAudioPlayer(uri ? { uri } : null);
+  const status = useAudioPlayerStatus(player);
   const bars = useRef(Array.from({ length: 18 }, (_, i) => 4 + ((i * 37) % 14))).current;
 
-  useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync().catch(() => {});
-    };
-  }, []);
-
-  function formatMs(ms) {
-    const totalSec = Math.floor((ms || 0) / 1000);
+  function formatSec(sec) {
+    const totalSec = Math.floor(sec || 0);
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   }
 
-  async function togglePlay() {
-    if (!uri) return;
-    if (playing) {
-      await soundRef.current?.pauseAsync();
-      setPlaying(false);
-      return;
+  useEffect(() => {
+    if (status.didJustFinish) {
+      player.seekTo(0);
     }
+  }, [status.didJustFinish]);
+
+  function togglePlay() {
+    if (!uri) return;
     try {
-      if (!soundRef.current) {
-        const { sound, status } = await Audio.Sound.createAsync(
-          { uri },
-          { shouldPlay: true },
-          (status) => {
-            if (status.isLoaded) {
-              setDurationText(formatMs(status.durationMillis));
-              if (status.didJustFinish) {
-                setPlaying(false);
-                sound.setPositionAsync(0);
-              }
-            }
-          }
-        );
-        soundRef.current = sound;
-        if (status.isLoaded) setDurationText(formatMs(status.durationMillis));
+      if (status.playing) {
+        player.pause();
       } else {
-        await soundRef.current.playAsync();
+        player.play();
       }
-      setPlaying(true);
     } catch (e) {
       Alert.alert('Error', "Couldn't play this voice note.");
     }
@@ -144,21 +139,42 @@ function VoiceNoteBubble({ fromMe, uri }) {
   return (
     <View style={styles.voiceRow}>
       <TouchableOpacity onPress={togglePlay} style={[styles.voicePlayBtn, { backgroundColor: fromMe ? 'rgba(255,255,255,0.9)' : '#0f0f1a' }]}>
-        {playing ? <Pause size={11} color={fromMe ? '#4f46e5' : 'white'} /> : <Play size={11} color={fromMe ? '#4f46e5' : 'white'} />}
+        {status.playing ? <Pause size={11} color={fromMe ? '#4f46e5' : 'white'} /> : <Play size={11} color={fromMe ? '#4f46e5' : 'white'} />}
       </TouchableOpacity>
       <View style={styles.voiceBars}>
         {bars.map((h, i) => (
-          <View key={i} style={[styles.voiceBar, { height: playing ? h + 4 : h, backgroundColor: fromMe ? 'rgba(255,255,255,0.7)' : '#c7c7d1' }]} />
+          <View key={i} style={[styles.voiceBar, { height: status.playing ? h + 4 : h, backgroundColor: fromMe ? 'rgba(255,255,255,0.7)' : '#c7c7d1' }]} />
         ))}
       </View>
-      <Text style={[styles.voiceDuration, { color: fromMe ? 'rgba(255,255,255,0.75)' : '#9ca3af' }]}>{durationText}</Text>
+      <Text style={[styles.voiceDuration, { color: fromMe ? 'rgba(255,255,255,0.75)' : '#9ca3af' }]}>{status.duration != null ? formatSec(status.duration) : '0:00'}</Text>
     </View>
   );
 }
 
-function VideoThumbBubble({ item, onOpen }) {
+function ImageBubble({ item, onOpen }) {
   return (
-    <TouchableOpacity onPress={() => onOpen(item)} style={styles.videoThumbWrap}>
+    <TouchableOpacity onPress={() => onOpen(item)} style={styles.imageThumbWrap}>
+      {item.fileUri ? (
+        <Image source={{ uri: item.fileUri }} style={styles.imageThumbImage} resizeMode="cover" />
+      ) : (
+        <View style={[styles.imageThumbImage, { backgroundColor: '#1c1c26' }]} />
+      )}
+    </TouchableOpacity>
+  );
+}
+
+function formatBytes(bytes) {
+  if (!bytes) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+}
+
+function VideoThumbBubble({ item, onOpen, downloading }) {
+  return (
+    <TouchableOpacity onPress={() => onOpen(item)} style={styles.videoThumbWrap} disabled={downloading}>
       {item.thumbnailUri ? (
         <Image source={{ uri: item.thumbnailUri }} style={styles.videoThumbImage} />
       ) : (
@@ -167,11 +183,15 @@ function VideoThumbBubble({ item, onOpen }) {
       <View style={StyleSheet.absoluteFillObject}>
         <View style={styles.videoPlayOverlay}>
           <GlassView style={styles.videoPlayCircle} blurAmount={14} tint={0.25}>
-            <Text style={styles.videoPlayIcon}>▶</Text>
+            {downloading ? <ActivityIndicator color="white" size="small" /> : <Text style={styles.videoPlayIcon}>▶</Text>}
           </GlassView>
         </View>
       </View>
-      {item.duration && (
+      {!item.localUri && item.fileSize ? (
+        <View style={styles.videoDurationBadge}>
+          <Text style={styles.videoDurationText}>{downloading ? 'Downloading…' : formatBytes(item.fileSize)}</Text>
+        </View>
+      ) : item.duration && (
         <View style={styles.videoDurationBadge}>
           <Text style={styles.videoDurationText}>{item.duration}</Text>
         </View>
@@ -215,7 +235,7 @@ async function openDocument(item, setPdfViewer) {
   }
   if (item.fileUri) {
     try {
-      await FileViewer.open(item.fileUri, { showOpenWithDialog: true });
+      await Sharing.shareAsync(item.fileUri, { dialogTitle: 'Open file' });
     } catch (e) {
       // no app available for this file type — fail silently for now,
       // could surface a toast here later
@@ -225,6 +245,20 @@ async function openDocument(item, setPdfViewer) {
 
 function msgMetaKey(chatId) {
   return `b24_msg_meta_${chatId}`;
+}
+
+function ChatVideoPlayer({ uri }) {
+  const player = useVideoPlayer({ uri }, (p) => {
+    p.play();
+  });
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFillObject}
+      contentFit="contain"
+      nativeControls
+    />
+  );
 }
 
 export default function ChatDetailScreen() {
@@ -251,9 +285,27 @@ export default function ChatDetailScreen() {
   const [clearedAt, setClearedAt] = useState(0);
   const [reactions, setReactions] = useState({});
   const [popId, setPopId] = useState(null);
+  const [wallpaperColor, setWallpaperColor] = useState(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [globalWp, chatWpRaw] = await Promise.all([
+          AsyncStorage.getItem(WALLPAPER_CACHE_KEY),
+          AsyncStorage.getItem(CHAT_WALLPAPER_KEY),
+        ]);
+        const chatWpMap = chatWpRaw ? JSON.parse(chatWpRaw) : {};
+        const override = chatWpMap[chat.id];
+        setWallpaperColor(override || globalWp || null);
+      } catch (e) {
+        // fall back to the default papercut image
+      }
+    })();
+  }, [chat.id]);
   const popScale = useRef(new Animated.Value(0)).current;
   const [isRecording, setIsRecording] = useState(false);
-  const recordingRef = useRef(null);
+  const [downloadingIds, setDownloadingIds] = useState([]);
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const lastTapRef = useRef({ id: null, time: 0 });
   const socketRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -264,17 +316,32 @@ export default function ChatDetailScreen() {
     return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
   };
 
-  const mapServerMessage = useCallback((m) => ({
-    id: String(m.id),
-    from: m.sender_id === user?.id ? 'me' : 'them',
-    text: m.content,
-    time: formatTime(m.timestamp),
-    ts: m.timestamp,
-    ticks: m.sender_id === user?.id ? (m.read_status ? 'read' : 'delivered') : undefined,
-    voice: m.media_type === 'voice',
-    mediaUrl: m.media_url,
-    revealed: true,
-  }), [user?.id]);
+  const mapServerMessage = useCallback((m) => {
+    const base = {
+      id: String(m.id),
+      from: m.sender_id === user?.id ? 'me' : 'them',
+      text: m.content,
+      time: formatTime(m.timestamp),
+      ts: m.timestamp,
+      ticks: m.sender_id === user?.id ? (m.read_status ? 'read' : 'delivered') : undefined,
+      voice: m.media_type === 'voice',
+      mediaUrl: m.media_url,
+      revealed: true,
+    };
+    if (m.media_type === 'image') {
+      return { ...base, type: 'image', fileUri: m.media_url };
+    }
+    if (m.media_type === 'video') {
+      let meta = {};
+      try { meta = JSON.parse(m.content) || {}; } catch (e) {}
+      return { ...base, type: 'video', fileId: m.media_url, filename: meta.filename, fileSize: meta.size, localUri: null };
+    }
+    if (m.media_type === 'document') {
+      const ext = (m.content || '').split('.').pop();
+      return { ...base, type: 'document', fileUri: m.media_url, filename: m.content, fileExt: ext };
+    }
+    return base;
+  }, [user?.id]);
 
   // Load local per-chat meta: starred message ids + "deleted for me" ids
   useEffect(() => {
@@ -348,7 +415,7 @@ export default function ChatDetailScreen() {
         (data.sender_id === user?.id && data.recipient_id === recipientId);
       if (!involvesThisChat) return;
 
-      setMessages(prev => [...prev, {
+      const base = {
         id: String(data.id ?? Date.now()),
         from: data.sender_id === user?.id ? 'me' : 'them',
         text: data.content,
@@ -358,7 +425,19 @@ export default function ChatDetailScreen() {
         voice: data.media_type === 'voice',
         mediaUrl: data.media_url,
         revealed: false,
-      }]);
+      };
+      let mapped = base;
+      if (data.media_type === 'image') {
+        mapped = { ...base, type: 'image', fileUri: data.media_url };
+      } else if (data.media_type === 'video') {
+        let meta = {};
+        try { meta = JSON.parse(data.content) || {}; } catch (e) {}
+        mapped = { ...base, type: 'video', fileId: data.media_url, filename: meta.filename, fileSize: meta.size, localUri: null };
+      } else if (data.media_type === 'document') {
+        const ext = (data.content || '').split('.').pop();
+        mapped = { ...base, type: 'document', fileUri: data.media_url, filename: data.content, fileExt: ext };
+      }
+      setMessages(prev => [...prev, mapped]);
     };
 
     const onTyping = (data) => {
@@ -387,6 +466,105 @@ export default function ChatDetailScreen() {
     setMessages(prev => prev.map(m => m.id === id ? { ...m, revealed: true } : m));
   }, []);
 
+  async function uploadAndSendAttachment(uri, filename, mimeType, mediaType) {
+    if (!socketRef.current) return;
+    try {
+      const formData = new FormData();
+      formData.append('file', { uri, name: filename, type: mimeType || 'application/octet-stream' });
+      formData.append('type', mediaType);
+      const result = await apiUpload('/media/upload', formData);
+      socketRef.current.emit('send_message', {
+        token,
+        recipient_id: recipientId,
+        content: filename,
+        media_type: mediaType,
+        media_url: result.url,
+      });
+    } catch (e) {
+      Alert.alert('Upload failed', "Couldn't send that attachment. Check your connection and try again.");
+    }
+  }
+
+  async function uploadAndSendLazyVideo(uri, filename, mimeType) {
+    if (!socketRef.current) return;
+    try {
+      const formData = new FormData();
+      formData.append('file', { uri, name: filename, type: mimeType || 'video/mp4' });
+      const result = await apiUpload('/files/upload', formData);
+      socketRef.current.emit('send_message', {
+        token,
+        recipient_id: recipientId,
+        content: JSON.stringify({ filename: result.filename, size: result.size }),
+        media_type: 'video',
+        media_url: result.file_id,
+      });
+    } catch (e) {
+      Alert.alert('Upload failed', "Couldn't send that video. Check your connection and try again.");
+    }
+  }
+
+  async function downloadAndOpenVideo(item) {
+    if (item.localUri) {
+      setVideoPlayer({ ...item, fileUri: item.localUri });
+      return;
+    }
+    if (downloadingIds.includes(item.id)) return;
+    setDownloadingIds(prev => [...prev, item.id]);
+    try {
+      const safeName = (item.filename || 'video.mp4').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const dest = `${FileSystem.cacheDirectory}${item.id}_${safeName}`;
+      const result = await FileSystem.downloadAsync(
+        `${API_BASE}/files/download/${item.fileId}`,
+        dest,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setMessages(prev => prev.map(m => m.id === item.id ? { ...m, localUri: result.uri } : m));
+      setVideoPlayer({ ...item, fileUri: result.uri });
+    } catch (e) {
+      Alert.alert('Download failed', "Couldn't download this video — it may have already been downloaded on another device.");
+    } finally {
+      setDownloadingIds(prev => prev.filter(id => id !== item.id));
+    }
+  }
+
+  async function pickPhoto() {
+    setAttachOpen(false);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to send images.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    uploadAndSendAttachment(asset.uri, asset.fileName || 'photo.jpg', asset.mimeType, 'image');
+  }
+
+  async function pickVideo() {
+    setAttachOpen(false);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission needed', 'Allow photo library access to send videos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'], quality: 0.8 });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    uploadAndSendLazyVideo(asset.uri, asset.fileName || 'video.mp4', asset.mimeType);
+  }
+
+  async function pickDocument() {
+    setAttachOpen(false);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: '*/*', copyToCacheDirectory: true });
+      if (result.canceled || !result.assets?.length) return;
+      const asset = result.assets[0];
+      uploadAndSendAttachment(asset.uri, asset.name || 'document', asset.mimeType, 'document');
+    } catch (e) {
+      Alert.alert('Error', "Couldn't open the document picker.");
+    }
+  }
+
   function handleSend() {
     if (!input.trim() || !socketRef.current) return;
     let text = input.trim();
@@ -407,14 +585,14 @@ export default function ChatDetailScreen() {
 
   async function startRecording() {
     try {
-      const perm = await Audio.requestPermissionsAsync();
+      const perm = await AudioModule.requestRecordingPermissionsAsync();
       if (!perm.granted) {
         Alert.alert('Microphone access needed', 'Enable microphone permission to record voice notes.');
         return;
       }
-      await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
-      const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
-      recordingRef.current = recording;
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setIsRecording(true);
     } catch (e) {
       Alert.alert('Error', "Couldn't start recording.");
@@ -422,13 +600,11 @@ export default function ChatDetailScreen() {
   }
 
   async function stopRecordingAndSend() {
-    const recording = recordingRef.current;
-    if (!recording) { setIsRecording(false); return; }
+    if (!isRecording) { setIsRecording(false); return; }
     setIsRecording(false);
-    recordingRef.current = null;
     try {
-      await recording.stopAndUnloadAsync();
-      const uri = recording.getURI();
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
       if (!uri || !socketRef.current) return;
 
       const formData = new FormData();
@@ -507,7 +683,7 @@ export default function ChatDetailScreen() {
         openForwardPicker(msg);
         break;
       case 'react':
-        Alert.alert('Coming soon', "Message reactions need a small backend addition we haven't built yet.");
+        toggleReaction(msg.id);
         break;
       default:
         break;
@@ -556,6 +732,23 @@ export default function ChatDetailScreen() {
     const isMe = item.from === 'me';
     const isStarred = starredIds.includes(item.id);
 
+    if (item.type === 'image') {
+      return (
+        <TouchableOpacity
+          onLongPress={() => setActionMsg(item)}
+          delayLongPress={400}
+          style={[styles.msgRow, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}
+        >
+          <ImageBubble item={item} onOpen={() => {}} />
+          <View style={styles.msgMetaRow}>
+            {isStarred && <Star size={10} color="#f59e0b" fill="#f59e0b" />}
+            <Text style={styles.msgTime}>{item.time}</Text>
+            {isMe && item.ticks && <Ticks status={item.ticks} />}
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
     if (item.type === 'video') {
       return (
         <TouchableOpacity
@@ -563,7 +756,7 @@ export default function ChatDetailScreen() {
           delayLongPress={400}
           style={[styles.msgRow, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}
         >
-          <VideoThumbBubble item={item} onOpen={setVideoPlayer} />
+          <VideoThumbBubble item={item} onOpen={downloadAndOpenVideo} downloading={downloadingIds.includes(item.id)} />
           <View style={styles.msgMetaRow}>
             {isStarred && <Star size={10} color="#f59e0b" fill="#f59e0b" />}
             <Text style={styles.msgTime}>{item.time}</Text>
@@ -629,7 +822,7 @@ export default function ChatDetailScreen() {
   };
 
   return (
-    <ImageBackground source={DEFAULT_WALLPAPER} style={styles.screen} resizeMode="cover">
+    <WallpaperBackground color={wallpaperColor} style={styles.screen}>
       <View style={styles.headerOuter}>
         <GlassView style={styles.headerInner} blurAmount={18}>
           <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -680,7 +873,12 @@ export default function ChatDetailScreen() {
               <TouchableOpacity
                 key={a.key}
                 style={styles.attachItem}
-                onPress={() => Alert.alert('Coming soon', `${a.label} sharing needs a native library we haven't added yet — on the list next.`)}
+                onPress={() => {
+                  if (a.key === 'photo') return pickPhoto();
+                  if (a.key === 'video') return pickVideo();
+                  if (a.key === 'document') return pickDocument();
+                  Alert.alert('Coming soon', `${a.label} sharing needs a native library we haven't added yet — on the list next.`);
+                }}
               >
                 <View style={styles.attachIconCircle}><Text style={{ color: 'white' }}>●</Text></View>
                 <Text style={styles.attachLabel}>{a.label}</Text>
@@ -764,13 +962,7 @@ export default function ChatDetailScreen() {
       <Modal visible={!!videoPlayer} animationType="fade" onRequestClose={() => setVideoPlayer(null)}>
         <View style={styles.videoPlayerScreen}>
           {videoPlayer?.fileUri ? (
-            <Video
-              source={{ uri: videoPlayer.fileUri }}
-              style={StyleSheet.absoluteFillObject}
-              resizeMode="contain"
-              controls
-              paused={false}
-            />
+            <ChatVideoPlayer key={videoPlayer.fileUri} uri={videoPlayer.fileUri} />
           ) : (
             <Text style={{ color: 'white', textAlign: 'center', marginTop: 100 }}>Video unavailable</Text>
           )}
@@ -799,7 +991,7 @@ export default function ChatDetailScreen() {
               style={{ flex: 1 }}
               onError={() => {
                 if (pdfViewer?.fileUri) {
-                  FileViewer.open(pdfViewer.fileUri, { showOpenWithDialog: true }).catch(() => {});
+                  Sharing.shareAsync(pdfViewer.fileUri, { mimeType: 'application/pdf', dialogTitle: 'Open PDF' }).catch(() => {});
                 }
                 setPdfViewer(null);
               }}
@@ -807,7 +999,7 @@ export default function ChatDetailScreen() {
           )}
         </View>
       </Modal>
-    </ImageBackground>
+    </WallpaperBackground>
   );
 }
 
@@ -861,6 +1053,8 @@ const styles = StyleSheet.create({
   sheetHeaderText: { fontWeight: '700', fontSize: 15, paddingHorizontal: 20, paddingBottom: 8 },
   sheetItem: { paddingVertical: 13, paddingHorizontal: 20 },
   sheetItemText: { fontSize: 14.5, color: '#0f0f1a' },
+  imageThumbWrap: { width: 220, height: 220, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
+  imageThumbImage: { width: '100%', height: '100%' },
   videoThumbWrap: { width: 220, height: 150, borderRadius: 18, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' },
   videoThumbImage: { width: '100%', height: '100%' },
   videoPlayOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center' },

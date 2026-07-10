@@ -59,6 +59,14 @@ export function AuthProvider({ children }) {
     });
   }
 
+  async function updateUserAvatar(avatarUrl) {
+    setUser(prev => {
+      const next = { ...prev, avatar_url: avatarUrl };
+      AsyncStorage.setItem('b24_user', JSON.stringify(next));
+      return next;
+    });
+  }
+
   function lockNow() {
     AsyncStorage.getItem('appLockEnabled').then(v => {
       if (v === 'true') setIsLocked(true);
@@ -98,7 +106,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, isLocked, loading, login, logout, unlock, lockNow, apiRequest, apiUpload, updateUserPoints }}
+      value={{ user, token, isLocked, loading, login, logout, unlock, lockNow, apiRequest, apiUpload, updateUserPoints, updateUserAvatar }}
     >
       {children}
     </AuthContext.Provider>
