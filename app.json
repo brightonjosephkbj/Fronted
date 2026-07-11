@@ -32,7 +32,8 @@
         "android.permission.REQUEST_INSTALL_PACKAGES",
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
-      ]
+      ],
+      "googleServicesFile": "./google-services.json"
     },
     "plugins": [
       "expo-status-bar",
@@ -52,11 +53,24 @@
       "expo-video",
       "expo-asset",
       "expo-sharing",
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#4f46e5"
+        }
+      ]
     ],
     "scheme": "b24meet",
     "ios": {
       "bundleIdentifier": "com.b24.messenger"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "61cfa609-1d54-4a98-90c1-6959cef9c525"
+      }
+    },
+    "owner": "brightonjoseph"
   }
 }

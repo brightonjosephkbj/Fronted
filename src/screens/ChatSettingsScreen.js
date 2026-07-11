@@ -9,6 +9,7 @@ import { ChevronLeft } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 
 const CHAT_WALLPAPER_KEY = 'b24_chat_wallpapers';
+const CHAT_BUBBLE_COLOR_KEY = 'b24_chat_bubble_colors';
 const WALLPAPER_COLORS = ['#4f46e5', '#9333ea', '#f97316', '#0ea5a4', '#db2777', '#16a34a', '#0f172a', '#eab308'];
 
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
@@ -79,13 +80,20 @@ export default function ChatSettingsScreen() {
   const [busy, setBusy] = useState(false);
   const [chatWallpaper, setChatWallpaper] = useState(null);
   const [wallpaperPickerOpen, setWallpaperPickerOpen] = useState(false);
+  const [chatBubbleColor, setChatBubbleColor] = useState(null);
+  const [bubbleColorPickerOpen, setBubbleColorPickerOpen] = useState(false);
 
   React.useEffect(() => {
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(CHAT_WALLPAPER_KEY);
-        const map = raw ? JSON.parse(raw) : {};
-        setChatWallpaper(map[chat.id] || null);
+        const [wpRaw, bcRaw] = await Promise.all([
+          AsyncStorage.getItem(CHAT_WALLPAPER_KEY),
+          AsyncStorage.getItem(CHAT_BUBBLE_COLOR_KEY),
+        ]);
+        const wpMap = wpRaw ? JSON.parse(wpRaw) : {};
+        const bcMap = bcRaw ? JSON.parse(bcRaw) : {};
+        setChatWallpaper(wpMap[chat.id] || null);
+        setChatBubbleColor(bcMap[chat.id] || null);
       } catch (e) {
         // fall back to no override
       }
@@ -103,6 +111,20 @@ export default function ChatSettingsScreen() {
       await AsyncStorage.setItem(CHAT_WALLPAPER_KEY, JSON.stringify(map));
     } catch (e) {
       Alert.alert('Error', "Couldn't save wallpaper for this chat. Try again.");
+    }
+  }
+
+  async function handleSelectChatBubbleColor(color) {
+    setChatBubbleColor(color);
+    setBubbleColorPickerOpen(false);
+    try {
+      const raw = await AsyncStorage.getItem(CHAT_BUBBLE_COLOR_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      if (color) map[chat.id] = color;
+      else delete map[chat.id];
+      await AsyncStorage.setItem(CHAT_BUBBLE_COLOR_KEY, JSON.stringify(map));
+    } catch (e) {
+      Alert.alert('Error', "Couldn't save chat color. Try again.");
     }
   }
 
@@ -214,11 +236,13 @@ export default function ChatSettingsScreen() {
     unfriend: confirmUnfriend,
     reportspam: confirmReport,
     wallpaper: () => setWallpaperPickerOpen(true),
+    chatcolor: () => setBubbleColorPickerOpen(true),
   };
 
   function renderSub(item) {
     if (item.key === 'mute') return muted ? 'On' : 'Off';
     if (item.key === 'wallpaper') return chatWallpaper ? 'Custom color' : 'Same as default';
+    if (item.key === 'chatcolor') return chatBubbleColor ? 'Custom color' : 'Bubble color override';
     return item.sub;
   }
 
@@ -308,6 +332,32 @@ export default function ChatSettingsScreen() {
               ))}
             </View>
             <TouchableOpacity onPress={() => setWallpaperPickerOpen(false)} style={styles.pickerCancel}>
+              <Text style={styles.pickerCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal visible={bubbleColorPickerOpen} transparent animationType="fade" onRequestClose={() => setBubbleColorPickerOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={styles.pickerCard} tint={0.85}>
+            <Text style={styles.pickerTitle}>Chat color for {chat.name}</Text>
+            <View style={styles.pickerGrid}>
+              <TouchableOpacity
+                onPress={() => handleSelectChatBubbleColor(null)}
+                style={[styles.pickerSwatch, { backgroundColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center' }, !chatBubbleColor && styles.pickerSwatchActive]}
+              >
+                <Text style={{ fontSize: 9, fontWeight: '700', color: '#6b6b7a' }}>Default</Text>
+              </TouchableOpacity>
+              {WALLPAPER_COLORS.map(color => (
+                <TouchableOpacity
+                  key={color}
+                  onPress={() => handleSelectChatBubbleColor(color)}
+                  style={[styles.pickerSwatch, { backgroundColor: color }, chatBubbleColor === color && styles.pickerSwatchActive]}
+                />
+              ))}
+            </View>
+            <TouchableOpacity onPress={() => setBubbleColorPickerOpen(false)} style={styles.pickerCancel}>
               <Text style={styles.pickerCancelText}>Cancel</Text>
             </TouchableOpacity>
           </GlassCard>

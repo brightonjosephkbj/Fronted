@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { getLocalGroupMessages } from '../db/localMessages';
 import { BadgeCheck, ChevronLeft, FileText, Mic, Phone, Plus, Send, Settings, Video } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -117,6 +118,18 @@ export default function GroupChatDetailScreen() {
     mediaUrl: m.media_url,
   }), [user?.id]);
 
+  const mapLocalMessage = useCallback((m) => ({
+    id: String(m.id),
+    sender: m.from_me ? 'me' : (m.sender_username || String(m.sender_id)),
+    senderColor: m.sender_color,
+    senderName: m.sender_username,
+    senderVerified: !!m.sender_verified,
+    text: m.content,
+    time: formatTime(m.ts),
+    mediaType: m.media_type,
+    mediaUrl: m.media_url,
+  }), []);
+
   // Who am I in this group, and who's allowed to send here (channels are
   // admin-only broadcast; regular groups respect the configurable send_perm).
   useEffect(() => {
@@ -132,18 +145,13 @@ export default function GroupChatDetailScreen() {
     })();
   }, [groupId, user?.id]);
 
-  // Load history
+  // Load history — group messages live in local SQLite now
+  // (server drops each one once every current member has acked it)
   useEffect(() => {
-    (async () => {
-      try {
-        const data = await apiRequest(`/groups/${groupId}/messages`);
-        if (Array.isArray(data?.messages)) {
-          setMessages(data.messages.map(mapServerMessage));
-        }
-      } catch (e) {
-        // backend endpoint not ready yet, screen still works with empty history
-      }
-    })();
+    try {
+      const local = getLocalGroupMessages(groupId);
+      setMessages(local.map(mapLocalMessage));
+    } catch (e) {}
   }, [groupId]);
 
   // Real-time updates — shared socket from SocketContext, not a new connection

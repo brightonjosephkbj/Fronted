@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useAudioPlayer, useAudioPlayerStatus, useAudioRecorder, useAudioRecorderState, RecordingPresets, AudioModule, setAudioModeAsync } from 'expo-audio';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import Pdf from 'react-native-pdf';
 import * as Sharing from 'expo-sharing';
@@ -15,14 +15,16 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth, API_BASE } from '../context/AuthContext';
 import { useSocket } from '../context/SocketContext';
+import { getLocalMessages, AI_USER_ID } from '../db/localMessages';
 import { BadgeCheck, Check, CheckCheck, ChevronLeft, FileText, Heart, Mic, Pause, Phone, Play, Plus, Send, Settings, Star, Video as VideoIcon, X } from 'lucide-react-native';
 
 const DEFAULT_WALLPAPER = require('../../assets/wallpapers/default-papercut.png');
 const WALLPAPER_CACHE_KEY = 'b24_default_wallpaper';
 const CHAT_WALLPAPER_KEY = 'b24_chat_wallpapers';
+const CHAT_BUBBLE_COLOR_KEY = 'b24_chat_bubble_colors';
 
 function WallpaperBackground({ color, style, children }) {
   if (color) {
@@ -289,22 +291,38 @@ export default function ChatDetailScreen() {
   const [reactions, setReactions] = useState({});
   const [popId, setPopId] = useState(null);
   const [wallpaperColor, setWallpaperColor] = useState(null);
+  const [bubbleColor, setBubbleColor] = useState(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [globalWp, chatWpRaw] = await Promise.all([
-          AsyncStorage.getItem(WALLPAPER_CACHE_KEY),
-          AsyncStorage.getItem(CHAT_WALLPAPER_KEY),
-        ]);
-        const chatWpMap = chatWpRaw ? JSON.parse(chatWpRaw) : {};
-        const override = chatWpMap[chat.id];
-        setWallpaperColor(override || globalWp || null);
-      } catch (e) {
-        // fall back to the default papercut image
-      }
-    })();
-  }, [chat.id]);
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        try {
+          const [globalWp, chatWpRaw, bcRaw] = await Promise.all([
+            AsyncStorage.getItem(WALLPAPER_CACHE_KEY),
+            AsyncStorage.getItem(CHAT_WALLPAPER_KEY),
+            AsyncStorage.getItem(CHAT_BUBBLE_COLOR_KEY),
+          ]);
+          const chatWpMap = chatWpRaw ? JSON.parse(chatWpRaw) : {};
+          const bcMap = bcRaw ? JSON.parse(bcRaw) : {};
+          const override = chatWpMap[chat.id];
+          setWallpaperColor(override || globalWp || null);
+          setBubbleColor(bcMap[chat.id] || null);
+        } catch (e) {
+          // fall back to defaults
+        }
+      })();
+    }, [chat.id])
+  );
+
+  function bubbleBackground(isMe) {
+    if (!isMe) return undefined;
+    if (!bubbleColor) return 'rgba(79,70,229,0.55)';
+    const hex = bubbleColor.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    return `rgba(${r},${g},${b},0.55)`;
+  }
   const popScale = useRef(new Animated.Value(0)).current;
   const [isRecording, setIsRecording] = useState(false);
   const [downloadingIds, setDownloadingIds] = useState([]);
@@ -345,6 +363,33 @@ export default function ChatDetailScreen() {
     }
     return base;
   }, [user?.id]);
+
+  const mapLocalMessage = useCallback((m) => {
+    const base = {
+      id: String(m.id),
+      from: m.from_me ? 'me' : 'them',
+      text: m.content,
+      time: formatTime(m.ts),
+      ts: m.ts,
+      ticks: m.from_me ? 'delivered' : undefined,
+      voice: m.media_type === 'voice',
+      mediaUrl: m.media_url,
+      revealed: true,
+    };
+    if (m.media_type === 'image') {
+      return { ...base, type: 'image', fileUri: m.media_url };
+    }
+    if (m.media_type === 'video') {
+      let meta = {};
+      try { meta = JSON.parse(m.content) || {}; } catch (e) {}
+      return { ...base, type: 'video', fileId: m.media_url, filename: meta.filename, fileSize: meta.size, localUri: null };
+    }
+    if (m.media_type === 'document') {
+      const ext = (m.content || '').split('.').pop();
+      return { ...base, type: 'document', fileUri: m.media_url, filename: m.content, fileExt: ext };
+    }
+    return base;
+  }, []);
 
   // Load local per-chat meta: starred message ids + "deleted for me" ids
   useEffect(() => {
@@ -395,14 +440,21 @@ export default function ChatDetailScreen() {
     ]).start(() => setPopId(null));
   }
 
-  // Load history
+  // Load history — JOY threads persist server-side, everything else lives locally now
   useEffect(() => {
     (async () => {
+      if (recipientId === AI_USER_ID) {
+        try {
+          const data = await apiRequest(`/messages/${recipientId}`);
+          if (Array.isArray(data?.messages)) {
+            setMessages(data.messages.map(mapServerMessage));
+          }
+        } catch (e) {}
+        return;
+      }
       try {
-        const data = await apiRequest(`/messages/${recipientId}`);
-        if (Array.isArray(data?.messages)) {
-          setMessages(data.messages.map(mapServerMessage));
-        }
+        const local = getLocalMessages(recipientId);
+        setMessages(local.map(mapLocalMessage));
       } catch (e) {}
     })();
   }, [recipientId]);
@@ -780,7 +832,7 @@ export default function ChatDetailScreen() {
           delayLongPress={400}
           style={[styles.msgRow, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}
         >
-          <GlassView style={[styles.bubble, styles.docBubble, { backgroundColor: isMe ? 'rgba(79,70,229,0.55)' : undefined }]} tint={isMe ? 0 : 0.5} blurAmount={14}>
+          <GlassView style={[styles.bubble, styles.docBubble, { backgroundColor: bubbleBackground(isMe) }]} tint={isMe ? 0 : 0.5} blurAmount={14}>
             <DocumentBubble item={item} fromMe={isMe} onOpen={(doc) => openDocument(doc, setPdfViewer)} />
           </GlassView>
           <View style={styles.msgMetaRow}>
@@ -800,7 +852,7 @@ export default function ChatDetailScreen() {
         delayLongPress={400}
         style={[styles.msgRow, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}
       >
-        <GlassView style={[styles.bubble, { backgroundColor: isMe ? 'rgba(79,70,229,0.55)' : undefined }]} tint={isMe ? 0 : 0.5} blurAmount={14}>
+        <GlassView style={[styles.bubble, { backgroundColor: bubbleBackground(isMe) }]} tint={isMe ? 0 : 0.5} blurAmount={14}>
           {item.voice ? (
             <VoiceNoteBubble fromMe={isMe} uri={item.mediaUrl} />
           ) : item.revealed ? (

@@ -1,10 +1,56 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 const AuthContext = createContext(null);
 
 export const API_BASE = 'https://Brighton233j-Messenger-back-database.hf.space';
+
+async function registerForPushNotifications(authToken) {
+  try {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#4f46e5',
+      });
+    }
+
+    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    let finalStatus = existingStatus;
+    if (existingStatus !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      finalStatus = status;
+    }
+    if (finalStatus !== 'granted') {
+      return;
+    }
+
+    const projectId = Constants?.expoConfig?.extra?.eas?.projectId;
+    const pushTokenResponse = await Notifications.getExpoPushTokenAsync(
+      projectId ? { projectId } : undefined
+    );
+    const pushToken = pushTokenResponse?.data;
+    if (!pushToken || !authToken) {
+      return;
+    }
+
+    await fetch(`${API_BASE}/push/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ push_token: pushToken }),
+    });
+  } catch (e) {
+    console.warn('Push registration failed', e);
+  }
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -22,6 +68,7 @@ export function AuthProvider({ children }) {
         if (savedToken && savedUser) {
           setToken(savedToken);
           setUser(JSON.parse(savedUser));
+          registerForPushNotifications(savedToken);
         }
         if (appLockEnabled === 'true') {
           setIsLocked(true);
@@ -39,6 +86,7 @@ export function AuthProvider({ children }) {
     setUser(newUser);
     await AsyncStorage.setItem('b24_token', newToken);
     await AsyncStorage.setItem('b24_user', JSON.stringify(newUser));
+    registerForPushNotifications(newToken);
   }
 
   async function logout() {
@@ -63,6 +111,14 @@ export function AuthProvider({ children }) {
   async function updateUserAvatar(avatarUrl) {
     setUser(prev => {
       const next = { ...prev, avatar_url: avatarUrl };
+      AsyncStorage.setItem('b24_user', JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function updateUserFields(patch) {
+    setUser(prev => {
+      const next = { ...prev, ...patch };
       AsyncStorage.setItem('b24_user', JSON.stringify(next));
       return next;
     });
@@ -135,7 +191,7 @@ export function AuthProvider({ children }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, token, isLocked, loading, login, logout, unlock, lockNow, apiRequest, apiUpload, apiUploadFile, updateUserPoints, updateUserAvatar }}
+      value={{ user, token, isLocked, loading, login, logout, unlock, lockNow, apiRequest, apiUpload, apiUploadFile, updateUserPoints, updateUserAvatar, updateUserFields }}
     >
       {children}
     </AuthContext.Provider>

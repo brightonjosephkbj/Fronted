@@ -10,7 +10,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { BadgeCheck } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useNotifications } from '../context/NotificationContext';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Swipeable } from 'react-native-gesture-handler';
 
 const FOLDERS = ['All', 'Business', 'Groups', 'Favourites'];
@@ -340,17 +340,27 @@ export default function MainScreen() {
         setChatsLoaded(true);
       }
 
-      try {
-        const data = await apiRequest('/chats');
-        if (Array.isArray(data?.chats)) {
-          setChats(data.chats);
-          AsyncStorage.setItem(CHATS_CACHE_KEY, JSON.stringify(data.chats)).catch(() => {});
-        }
-      } catch (e) {
-        // offline or backend unreachable - keep showing cached chats
-      }
+      await refreshChats();
     })();
   }, []);
+
+  const refreshChats = useCallback(async () => {
+    try {
+      const data = await apiRequest('/chats');
+      if (Array.isArray(data?.chats)) {
+        setChats(data.chats);
+        AsyncStorage.setItem(CHATS_CACHE_KEY, JSON.stringify(data.chats)).catch(() => {});
+      }
+    } catch (e) {
+      // offline or backend unreachable - keep showing cached chats
+    }
+  }, [apiRequest]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshChats();
+    }, [refreshChats])
+  );
 
   useEffect(() => {
     if (prevPointsRef.current < pointsTarget && points >= pointsTarget) {
@@ -437,6 +447,10 @@ export default function MainScreen() {
       if (pin === savedPin) {
         const chat = pinPrompt;
         setPinPrompt(null);
+        if (chat.__unlockOnly) {
+          updateMeta(chat.id, { locked: false });
+          return;
+        }
         if (chatMeta[chat.id]?.unread) updateMeta(chat.id, { unread: false });
         navigation.navigate(chat.isGroup ? 'GroupChatDetail' : 'ChatDetail', { chat });
       } else {
@@ -530,7 +544,11 @@ export default function MainScreen() {
             }
           });
         } else {
-          updateMeta(chat.id, { locked: false });
+          // unlocking must go through the same PIN check as opening a locked chat -
+          // it must never remove the lock for free from the menu
+          setPinPrompt({ ...chat, __unlockOnly: true });
+          setPinEntry('');
+          setPinError(false);
         }
         break;
       case 'export':
@@ -629,7 +647,13 @@ export default function MainScreen() {
       {/* top bar */}
       <Animated.View style={[styles.topBarWrap, { transform: [{ rotate: spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) }] }]}>
         <TopBarBackground bg={topBarBg || user?.topBar} />
-        <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={12} />
+        {resolveBackground(topBarBg || user?.topBar).type === 'color' ? (
+          <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={12} />
+        ) : (
+          // BlurView's Android emulation renders too opaque and washes out photo/video
+          // backgrounds - use a light scrim instead, just enough for text legibility
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.25)' }]} />
+        )}
 
         {!celebrating && !banner && (
           <TouchableOpacity activeOpacity={0.9} onLongPress={() => setTopBarPickerOpen(true)} style={styles.topBarInner}>
@@ -686,7 +710,7 @@ export default function MainScreen() {
         </GlassView>
       </ScrollView>
 
-      {archivedCount > 0 && (
+      {(archivedCount > 0 || showArchived) && (
         <TouchableOpacity onPress={() => setShowArchived(v => !v)} style={styles.archivedToggle}>
           <Text style={styles.archivedToggleText}>
             {showArchived ? '← Back to chats' : `Archived (${archivedCount})`}

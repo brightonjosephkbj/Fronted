@@ -8,3 +8,4 @@ b24-release_keystore_b64.txt
 *.bak
 *.bak2
 .expo/
+firebase-adminsdk.json
