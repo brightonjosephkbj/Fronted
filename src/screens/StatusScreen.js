@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, ScrollView, Modal,
-  TextInput, Animated, Image, Alert, Pressable,
+  TextInput, Animated, Image, Alert, Pressable, PanResponder,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
@@ -14,6 +14,7 @@ import {
   Image as ImageIcon, Film, Music2, Type, Play, Pause,
 } from 'lucide-react-native';
 import { useAuth } from '../context/AuthContext';
+import { useSocket } from '../context/SocketContext';
 
 const PALETTE = ["#9333ea", "#f97316", "#0ea5a4", "#4f46e5", "#db2777", "#16a34a", "#ea580c", "#0891b2", "#7c3aed", "#c026d3"];
 function colorForId(id) {
@@ -114,12 +115,24 @@ function StoryAudioSlide({ uri, color, onReady, onEnd }) {
 }
 
 function StoryViewer({ item, isMe, onClose }) {
-  const { apiRequest } = useAuth();
+  const { apiRequest, token } = useAuth();
+  const { socket } = useSocket();
   const [segIndex, setSegIndex] = useState(0);
   const [duration, setDuration] = useState(5000);
   const [viewCount, setViewCount] = useState(null);
   const progress = useRef(new Animated.Value(0)).current;
   const durationSetRef = useRef(false);
+  const progressValueRef = useRef(0);
+  const animRef = useRef(null);
+  const pressStartRef = useRef(0);
+
+  const [viewersOpen, setViewersOpen] = useState(false);
+  const [viewersList, setViewersList] = useState([]);
+  const [viewersListLoading, setViewersListLoading] = useState(false);
+
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const mountedReplyRef = useRef(false);
 
   const statuses = item.statuses || [];
   const current = statuses[segIndex];
@@ -139,13 +152,39 @@ function StoryViewer({ item, isMe, onClose }) {
   }
 
   useEffect(() => {
+    const id = progress.addListener(({ value }) => { progressValueRef.current = value; });
+    return () => progress.removeListener(id);
+  }, [progress]);
+
+  useEffect(() => {
     progress.setValue(0);
+    progressValueRef.current = 0;
     const anim = Animated.timing(progress, { toValue: 1, duration, useNativeDriver: false });
+    animRef.current = anim;
     anim.start(({ finished }) => {
       if (finished) goNext();
     });
     return () => anim.stop();
   }, [segIndex, item, duration]);
+
+  function pauseStory() {
+    animRef.current?.stop();
+  }
+
+  function resumeStory() {
+    const remaining = Math.max(50, (1 - progressValueRef.current) * duration);
+    const anim = Animated.timing(progress, { toValue: 1, duration: remaining, useNativeDriver: false });
+    animRef.current = anim;
+    anim.start(({ finished }) => {
+      if (finished) goNext();
+    });
+  }
+
+  function handleTapRelease(navigateFn) {
+    const wasQuickTap = Date.now() - pressStartRef.current < 300;
+    if (wasQuickTap) navigateFn();
+    else resumeStory();
+  }
 
   useEffect(() => {
     if (!isMe || !current) return;
@@ -155,11 +194,55 @@ function StoryViewer({ item, isMe, onClose }) {
       .catch(() => setViewCount(0));
   }, [segIndex, item, isMe]);
 
+  useEffect(() => {
+    if (!mountedReplyRef.current) { mountedReplyRef.current = true; return; }
+    if (replyOpen) pauseStory();
+    else resumeStory();
+  }, [replyOpen]);
+
   function setDynamicDuration(ms) {
     if (durationSetRef.current) return;
     durationSetRef.current = true;
     setDuration(ms);
   }
+
+  function openViewersList() {
+    if (!current) return;
+    setViewersOpen(true);
+    setViewersListLoading(true);
+    pauseStory();
+    apiRequest(`/status/${current.id}/viewers`)
+      .then(data => setViewersList(data?.viewers || []))
+      .catch(() => setViewersList([]))
+      .finally(() => setViewersListLoading(false));
+  }
+
+  function closeViewersList() {
+    setViewersOpen(false);
+    resumeStory();
+  }
+
+  function sendReply() {
+    if (!replyText.trim() || !socket) return;
+    socket.emit('send_message', {
+      token,
+      recipient_id: item.id,
+      content: `> Replied to your status\n${replyText.trim()}`,
+    });
+    setReplyText('');
+    setReplyOpen(false);
+  }
+
+  const replyPanResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 12 && Math.abs(g.dy) > Math.abs(g.dx),
+      onPanResponderGrant: () => pauseStory(),
+      onPanResponderRelease: (_, g) => {
+        if (g.dy < -20) setReplyOpen(true);
+        else resumeStory();
+      },
+    })
+  ).current;
 
   const widthInterpolate = progress.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] });
   const bgColor = current?.bg_color || item.color;
@@ -205,32 +288,84 @@ function StoryViewer({ item, isMe, onClose }) {
         </View>
       </View>
 
-      <Pressable style={styles.storyTapLeft} onPress={() => setSegIndex(i => Math.max(0, i - 1))} />
-      <Pressable style={styles.storyTapRight} onPress={goNext} />
+      <Pressable
+        style={styles.storyTapLeft}
+        onPressIn={() => { pressStartRef.current = Date.now(); pauseStory(); }}
+        onPressOut={() => handleTapRelease(() => setSegIndex(i => Math.max(0, i - 1)))}
+      />
+      <Pressable
+        style={styles.storyTapRight}
+        onPressIn={() => { pressStartRef.current = Date.now(); pauseStory(); }}
+        onPressOut={() => handleTapRelease(goNext)}
+      />
 
       <View style={styles.storyFooterWrap}>
         <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={20} />
-        {!isMe && (
+        {!isMe && !replyOpen && (
+          <View {...replyPanResponder.panHandlers} style={styles.storyReplyHint}>
+            <ChevronUp size={16} color="rgba(255,255,255,0.85)" />
+            <Text style={styles.storyReplyHintText}>Swipe up to reply</Text>
+          </View>
+        )}
+        {!isMe && replyOpen && (
           <View style={styles.storyReplyRow}>
             <TextInput
+              autoFocus
+              value={replyText}
+              onChangeText={setReplyText}
               placeholder={`Reply to ${item.name}...`}
               placeholderTextColor="rgba(255,255,255,0.7)"
               style={styles.storyReplyInput}
+              onSubmitEditing={sendReply}
+              onBlur={() => { if (!replyText.trim()) setReplyOpen(false); }}
             />
-            <TouchableOpacity style={styles.storySendBtn}>
+            <TouchableOpacity style={styles.storySendBtn} onPress={sendReply}>
               <Send size={15} color="white" />
             </TouchableOpacity>
           </View>
         )}
         {isMe && (
-          <View style={styles.storyViewsRow}>
+          <TouchableOpacity style={styles.storyViewsRow} onPress={openViewersList} activeOpacity={0.7}>
             <Eye size={12} color="rgba(255,255,255,0.7)" />
             <Text style={styles.storyViews}>
               {viewCount === null ? 'Loading views...' : `${viewCount} view${viewCount === 1 ? '' : 's'}`}
             </Text>
-          </View>
+          </TouchableOpacity>
         )}
       </View>
+
+      <Modal visible={viewersOpen} transparent animationType="slide" onRequestClose={closeViewersList}>
+        <Pressable style={styles.viewersBackdrop} onPress={closeViewersList}>
+          <View style={styles.viewersSheet}>
+            <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={30} />
+            <View style={styles.blockedHeader}>
+              <Text style={styles.viewersSheetTitle}>Viewed by</Text>
+              <TouchableOpacity onPress={closeViewersList}><X size={20} color="white" /></TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 360 }}>
+              {viewersListLoading ? (
+                <Text style={styles.viewersEmptyText}>Loading...</Text>
+              ) : viewersList.length === 0 ? (
+                <Text style={styles.viewersEmptyText}>No views yet.</Text>
+              ) : (
+                viewersList.map((v) => (
+                  <View key={v.id} style={styles.viewersRow}>
+                    <View style={styles.viewersAvatar}>
+                      {v.avatar_url ? (
+                        <Image source={{ uri: v.avatar_url }} style={styles.viewersAvatarImg} />
+                      ) : (
+                        <Text style={styles.viewersAvatarText}>{v.username[0]}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.viewersName}>{v.username}</Text>
+                    <Text style={styles.viewersTime}>{timeAgo(v.viewed_at)}</Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -686,8 +821,8 @@ const styles = StyleSheet.create({
   audioSlide: { alignItems: 'center', justifyContent: 'center', gap: 16 },
   audioIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center' },
   audioSlideText: { color: 'white', fontSize: 14, fontWeight: '600', paddingHorizontal: 24 },
-  storyTapLeft: { position: 'absolute', top: 80, bottom: 90, left: 0, width: '35%' },
-  storyTapRight: { position: 'absolute', top: 80, bottom: 90, right: 0, width: '35%' },
+  storyTapLeft: { position: 'absolute', top: 80, bottom: 90, left: 0, width: '50%' },
+  storyTapRight: { position: 'absolute', top: 80, bottom: 90, right: 0, width: '50%' },
   captionInput: { color: 'white', fontSize: 14, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 14, paddingHorizontal: 14, paddingVertical: 10 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   addSheetWrap: { overflow: 'hidden', borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingTop: 18, paddingBottom: 30, paddingHorizontal: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.6)', borderBottomWidth: 0 },
@@ -696,4 +831,17 @@ const styles = StyleSheet.create({
   addSheetIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   addSheetLabel: { fontSize: 14.5, fontWeight: '700', color: '#0f0f1a' },
   addSheetSub: { fontSize: 11.5, color: '#6b6b7a', marginTop: 2 },
+  storyReplyHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 16 },
+  storyReplyHintText: { color: 'rgba(255,255,255,0.85)', fontSize: 12.5, fontWeight: '600' },
+  viewersBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  viewersSheet: { overflow: 'hidden', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingBottom: 30 },
+  viewersSheetTitle: { fontSize: 15, fontWeight: '800', color: 'white' },
+  viewersEmptyText: { fontSize: 12.5, color: 'rgba(255,255,255,0.6)', paddingVertical: 10 },
+  viewersRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.12)' },
+  viewersAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  viewersAvatarImg: { width: 34, height: 34, borderRadius: 17 },
+  viewersAvatarText: { color: 'white', fontWeight: '700', fontSize: 13 },
+  viewersName: { flex: 1, color: 'white', fontSize: 13.5, fontWeight: '600' },
+  viewersTime: { color: 'rgba(255,255,255,0.6)', fontSize: 11 },
+  blockedHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
 });

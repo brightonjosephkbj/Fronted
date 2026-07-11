@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Mo
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
+import * as Updates from 'expo-updates';
 import { BlurView } from 'expo-blur';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
@@ -399,14 +400,38 @@ export default function SettingsScreen() {
   async function handleCheckForUpdates() {
     setUpdateStage('checking');
     try {
-      const data = await apiRequest(`/app/version?current_version=${CURRENT_APP_VERSION}`);
-      if (data?.update_available && data?.apk_url) {
+      const runtimeVersion = Updates.runtimeVersion || '';
+      const data = await apiRequest(
+        `/app/version?current_version=${CURRENT_APP_VERSION}&current_runtime_version=${runtimeVersion}`
+      );
+
+      if (data?.update_available && data?.update_type === 'native' && data?.apk_url) {
         setUpdateInfo(data);
         setUpdateStage('available');
+      } else if (data?.update_available && data?.update_type === 'ota') {
+        setUpdateInfo(data);
+        await handleApplyOtaUpdate();
       } else {
         setUpdateStage('uptodate');
       }
     } catch (e) {
+      setUpdateStage('error');
+    }
+  }
+
+  async function handleApplyOtaUpdate() {
+    setUpdateStage('ota_applying');
+    try {
+      const result = await Updates.checkForUpdateAsync();
+      if (!result.isAvailable) {
+        setUpdateStage('uptodate');
+        return;
+      }
+      await Updates.fetchUpdateAsync();
+      setUpdateStage('ota_ready');
+      await Updates.reloadAsync();
+    } catch (e) {
+      Alert.alert('Update failed', "Couldn't download the update. Try again.");
       setUpdateStage('error');
     }
   }
@@ -837,6 +862,19 @@ export default function SettingsScreen() {
                   <View style={[styles.progressFill, { width: `${Math.round(downloadProgress * 100)}%` }]} />
                 </View>
               </View>
+            )}
+
+            {updateStage === 'ota_applying' && (
+              <View style={styles.updateStatusRow}>
+                <ActivityIndicator size="small" color="#4f46e5" />
+                <Text style={styles.helpA}>
+                  {updateInfo?.notes ? `Applying update: ${updateInfo.notes}` : 'Applying update...'}
+                </Text>
+              </View>
+            )}
+
+            {updateStage === 'ota_ready' && (
+              <Text style={[styles.helpA, { marginTop: 12 }]}>Update downloaded. Restarting...</Text>
             )}
 
             {updateStage === 'error' && (
