@@ -38,6 +38,18 @@ jobs:
       - name: Prebuild (generate native android project)
         run: npx expo prebuild --platform android --clean
 
+      - name: Configure Gradle memory settings
+        run: |
+          cat >> android/gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx2560m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError
+          kotlin.daemon.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=768m
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          org.gradle.workers.max=1
+          EOF
+          echo '--- Final gradle.properties ---'
+          cat android/gradle.properties
+
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
