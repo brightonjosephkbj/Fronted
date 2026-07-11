@@ -59,7 +59,7 @@ jobs:
       - name: Build release APK
         working-directory: android
         run: |
-          ./gradlew assembleRelease \
+          ./gradlew assembleRelease --stacktrace --info \
             -PB24_UPLOAD_STORE_FILE=${{ github.workspace }}/b24-release.keystore \
             -PB24_UPLOAD_STORE_PASSWORD=${{ secrets.B24_KEYSTORE_PASSWORD }} \
             -PB24_UPLOAD_KEY_ALIAS=${{ secrets.B24_KEY_ALIAS }} \
