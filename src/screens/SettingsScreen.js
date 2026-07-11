@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal, Alert, Pressable, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Image, Modal, Alert, Pressable, ActivityIndicator, TextInput } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
@@ -9,6 +9,7 @@ import { useAuth } from '../context/AuthContext';
 import { useFontPrefs } from '../context/FontPrefsContext';
 import { ChevronLeft, ChevronRight, X, Camera } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import Avatar from '../components/Avatar';
 
 function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
@@ -21,8 +22,18 @@ function GlassCard({ style, children, blurAmount = 18, tint = 0.35 }) {
   );
 }
 
+function BannerVideo({ uri, style }) {
+  const player = useVideoPlayer({ uri }, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+  return <VideoView player={player} style={style} contentFit="cover" nativeControls={false} />;
+}
+
 function resolveBackground(banner) {
   if (banner?.type === 'photo' && banner.value) return { type: 'photo', value: banner.value };
+  if (banner?.type === 'video' && banner.value) return { type: 'video', value: banner.value };
   return { type: 'color', value: banner?.value || '#ffffff' };
 }
 
@@ -39,7 +50,7 @@ function verifiedColor(tick) {
 
 export default function SettingsScreen() {
   const navigation = useNavigation();
-  const { user, logout, apiRequest, apiUpload, apiUploadFile, updateUserAvatar } = useAuth();
+  const { user, logout, apiRequest, apiUpload, apiUploadFile, updateUserAvatar, updateUserFields } = useAuth();
   const { fontSize, setFontSize, fontFamily, setFontFamily, sizeOptions, familyOptions } = useFontPrefs();
 
   const [lastSeen, setLastSeen] = useState(true);
@@ -67,6 +78,12 @@ export default function SettingsScreen() {
   const [updateStage, setUpdateStage] = useState('idle'); // idle | checking | uptodate | available | downloading | error
   const [updateInfo, setUpdateInfo] = useState(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
+  const [usernameEditOpen, setUsernameEditOpen] = useState(false);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [usernameSaving, setUsernameSaving] = useState(false);
+  const [bioEditOpen, setBioEditOpen] = useState(false);
+  const [bioInput, setBioInput] = useState('');
+  const [bioSaving, setBioSaving] = useState(false);
 
   const banner = resolveBackground(localBanner || user?.banner);
 
@@ -87,6 +104,22 @@ export default function SettingsScreen() {
         const wp = await AsyncStorage.getItem(WALLPAPER_CACHE_KEY);
         if (wp) setWallpaper(wp);
       } catch (e) {}
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const settings = await apiRequest('/privacy/settings');
+        if (settings && typeof settings.read_receipts === 'boolean') {
+          setReadReceipts(settings.read_receipts);
+        }
+        if (settings && typeof settings.last_seen === 'boolean') {
+          setLastSeen(settings.last_seen);
+        }
+      } catch (e) {
+        // offline or backend unreachable - keep local default
+      }
     })();
   }, []);
 
@@ -161,9 +194,30 @@ export default function SettingsScreen() {
     }
   }
 
+  async function handleToggleLastSeen(value) {
+    setLastSeen(value);
+    try {
+      await apiRequest('/privacy/settings', { method: 'POST', body: JSON.stringify({ last_seen: value }) });
+    } catch (e) {
+      Alert.alert('Error', "Couldn't save last seen setting. Try again.");
+      setLastSeen(!value);
+    }
+  }
+
+  async function handleToggleReadReceipts(value) {
+    setReadReceipts(value);
+    try {
+      await apiRequest('/privacy/settings', { method: 'POST', body: JSON.stringify({ read_receipts: value }) });
+    } catch (e) {
+      Alert.alert('Error', "Couldn't save read receipts setting. Try again.");
+      setReadReceipts(!value);
+    }
+  }
+
   async function handleSelectBannerColor(color) {
     const newBanner = { type: 'color', value: color };
     setLocalBanner(newBanner);
+    updateUserFields({ banner: newBanner });
     setBannerPickerOpen(false);
     try {
       await AsyncStorage.setItem(BANNER_CACHE_KEY, JSON.stringify(newBanner));
@@ -172,6 +226,80 @@ export default function SettingsScreen() {
       await apiRequest('/profile/banner', { method: 'POST', body: JSON.stringify(newBanner) });
     } catch (e) {
       // backend doesn't have a banner endpoint yet - it still applies locally
+    }
+  }
+
+  async function pickBannerPhoto() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Photo access needed', 'Enable photo library permission to set a banner.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.8 });
+    if (result.canceled || !result.assets?.[0]?.uri) return;
+    const asset = result.assets[0];
+    const isVideo = asset.type === 'video';
+    const uri = asset.uri;
+    try {
+      const res = await apiUploadFile('/media/upload', uri, {
+        filename: isVideo ? 'banner.mp4' : 'banner.jpg',
+        mimeType: isVideo ? 'video/mp4' : 'image/jpeg',
+        fields: { type: 'banner' },
+      });
+      const newBanner = { type: isVideo ? 'video' : 'photo', value: res.url };
+      setLocalBanner(newBanner);
+      updateUserFields({ banner: newBanner });
+      setBannerPickerOpen(false);
+      try {
+        await AsyncStorage.setItem(BANNER_CACHE_KEY, JSON.stringify(newBanner));
+      } catch (e) {}
+      try {
+        await apiRequest('/profile/banner', { method: 'POST', body: JSON.stringify(newBanner) });
+      } catch (e) {}
+    } catch (e) {
+      Alert.alert('Error', `Couldn't set your banner ${isVideo ? 'video' : 'photo'}.`);
+    }
+  }
+
+  function openUsernameEdit() {
+    setUsernameInput(user?.username || '');
+    setUsernameEditOpen(true);
+  }
+
+  async function handleSaveUsername() {
+    const next = usernameInput.trim();
+    if (!next || next === (user?.username || '')) {
+      setUsernameEditOpen(false);
+      return;
+    }
+    setUsernameSaving(true);
+    try {
+      await apiRequest('/profile/username', { method: 'POST', body: JSON.stringify({ username: next }) });
+      updateUserFields({ username: next });
+      setUsernameEditOpen(false);
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't update username.");
+    } finally {
+      setUsernameSaving(false);
+    }
+  }
+
+  function openBioEdit() {
+    setBioInput(user?.bio || '');
+    setBioEditOpen(true);
+  }
+
+  async function handleSaveBio() {
+    const next = bioInput.trim();
+    setBioSaving(true);
+    try {
+      await apiRequest('/profile/bio', { method: 'POST', body: JSON.stringify({ bio: next }) });
+      updateUserFields({ bio: next });
+      setBioEditOpen(false);
+    } catch (e) {
+      Alert.alert('Error', e.message || "Couldn't update bio.");
+    } finally {
+      setBioSaving(false);
     }
   }
 
@@ -338,6 +466,9 @@ export default function SettingsScreen() {
         {banner.type === 'photo' && (
           <Image source={{ uri: banner.value }} style={StyleSheet.absoluteFillObject} />
         )}
+        {banner.type === 'video' && (
+          <BannerVideo uri={banner.value} style={StyleSheet.absoluteFillObject} />
+        )}
         <GlassCard style={styles.profileInner} tint={0.4}>
           <TouchableOpacity activeOpacity={0.85} onPress={pickAvatar} style={{ position: 'relative' }}>
             <Avatar
@@ -357,24 +488,25 @@ export default function SettingsScreen() {
 
       <Text style={styles.sectionTitle}>Account & Identity</Text>
       <GlassCard style={{ padding: 0 }}>
-        <Row label="Username" sub={user?.username} />
+        <NavRow label="Username" sub={user?.username} onPress={openUsernameEdit} />
+        <NavRow label="Bio" sub={user?.bio ? (user.bio.length > 22 ? user.bio.slice(0, 22) + '…' : user.bio) : 'Add a bio'} onPress={openBioEdit} />
         <Row label="Phone number" sub={user?.phone || 'Not set'} />
         <Row label="Two-step verification" sub="Off" last />
       </GlassCard>
 
       <Text style={styles.sectionTitle}>Profile Banner</Text>
       <GlassCard style={{ padding: 0 }}>
-        <NavRow label="Change banner" sub={banner.type === 'photo' ? 'Photo' : 'Color'} onPress={() => setBannerPickerOpen(true)} last />
+        <NavRow label="Change banner" sub={banner.type === 'photo' ? 'Photo' : banner.type === 'video' ? 'Video' : 'Color'} onPress={() => setBannerPickerOpen(true)} last />
       </GlassCard>
 
       <Text style={styles.sectionTitle}>Privacy</Text>
       <GlassCard style={{ padding: 0 }}>
-        <ToggleRow label="Last seen & online" value={lastSeen} onChange={setLastSeen} />
+        <ToggleRow label="Last seen & online" value={lastSeen} onChange={handleToggleLastSeen} />
         <ToggleRow label="Freeze last seen" value={freezeLastSeen} onChange={setFreezeLastSeen} />
         <ToggleRow label="Ghost mode" value={ghostMode} onChange={setGhostMode} />
         <ToggleRow label="Profile photo visibility" value={profilePhotoVisible} onChange={setProfilePhotoVisible} />
         <NavRow label="Blocked contacts" sub={String(blockedUsers.length)} onPress={openBlockedList} />
-        <ToggleRow label="Read receipts" value={readReceipts} onChange={setReadReceipts} />
+        <ToggleRow label="Read receipts" value={readReceipts} onChange={handleToggleReadReceipts} />
         <ToggleRow label="Anti-delete messages" value={antiDelete} onChange={setAntiDelete} last />
       </GlassCard>
 
@@ -436,6 +568,9 @@ export default function SettingsScreen() {
           {banner.type === 'photo' && (
             <Image source={{ uri: banner.value }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
           )}
+          {banner.type === 'video' && (
+            <BannerVideo uri={banner.value} style={StyleSheet.absoluteFillObject} />
+          )}
           <TouchableOpacity style={styles.bannerCloseBtn} onPress={() => setBannerPreviewOpen(false)}>
             <BlurView style={StyleSheet.absoluteFill} tint="light" intensity={20} />
             <X size={20} color="#0f0f1a" />
@@ -446,13 +581,17 @@ export default function SettingsScreen() {
       <Modal visible={bannerPickerOpen} transparent animationType="fade" onRequestClose={() => setBannerPickerOpen(false)}>
         <View style={styles.pickerBackdrop}>
           <GlassCard style={styles.pickerCard} tint={0.85}>
-            <Text style={styles.pickerTitle}>Choose a banner color</Text>
+            <Text style={styles.pickerTitle}>Choose a banner</Text>
+            <TouchableOpacity onPress={pickBannerPhoto} style={styles.bannerPhotoBtn}>
+              <Camera size={16} color="#4f46e5" />
+              <Text style={styles.bannerPhotoBtnText}>Choose photo or video</Text>
+            </TouchableOpacity>
             <View style={styles.pickerGrid}>
               {BANNER_COLORS.map(color => (
                 <TouchableOpacity
                   key={color}
                   onPress={() => handleSelectBannerColor(color)}
-                  style={[styles.pickerSwatch, { backgroundColor: color }, banner.value === color && styles.pickerSwatchActive]}
+                  style={[styles.pickerSwatch, { backgroundColor: color }, banner.type === 'color' && banner.value === color && styles.pickerSwatchActive]}
                 />
               ))}
             </View>
@@ -528,6 +667,57 @@ export default function SettingsScreen() {
             <TouchableOpacity onPress={() => setFontFamilyPickerOpen(false)} style={styles.pickerCancel}>
               <Text style={styles.pickerCancelText}>Cancel</Text>
             </TouchableOpacity>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal visible={usernameEditOpen} transparent animationType="fade" onRequestClose={() => setUsernameEditOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={[styles.pickerCard, { alignItems: 'stretch' }]} tint={0.9}>
+            <Text style={styles.pickerTitle}>Edit username</Text>
+            <TextInput
+              style={styles.textInput}
+              value={usernameInput}
+              onChangeText={setUsernameInput}
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={24}
+              placeholder="username"
+              placeholderTextColor="#9ca3af"
+            />
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+              <TouchableOpacity onPress={() => setUsernameEditOpen(false)} style={[styles.updateBtn, styles.cancelBtn, { flex: 1 }]}>
+                <Text style={[styles.updateBtnText, { color: '#6b6b7a' }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSaveUsername} style={[styles.updateBtn, { flex: 1 }]} disabled={usernameSaving}>
+                {usernameSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.updateBtnText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </GlassCard>
+        </View>
+      </Modal>
+
+      <Modal visible={bioEditOpen} transparent animationType="fade" onRequestClose={() => setBioEditOpen(false)}>
+        <View style={styles.pickerBackdrop}>
+          <GlassCard style={[styles.pickerCard, { alignItems: 'stretch' }]} tint={0.9}>
+            <Text style={styles.pickerTitle}>Edit bio</Text>
+            <TextInput
+              style={[styles.textInput, { height: 80, textAlignVertical: 'top' }]}
+              value={bioInput}
+              onChangeText={setBioInput}
+              multiline
+              maxLength={150}
+              placeholder="Tell people about yourself"
+              placeholderTextColor="#9ca3af"
+            />
+            <View style={{ flexDirection: 'row', gap: 12, marginTop: 16 }}>
+              <TouchableOpacity onPress={() => setBioEditOpen(false)} style={[styles.updateBtn, styles.cancelBtn, { flex: 1 }]}>
+                <Text style={[styles.updateBtnText, { color: '#6b6b7a' }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleSaveBio} style={[styles.updateBtn, { flex: 1 }]} disabled={bioSaving}>
+                {bioSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.updateBtnText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
           </GlassCard>
         </View>
       </Modal>
@@ -738,4 +928,8 @@ const styles = StyleSheet.create({
   updateStatusRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
   progressTrack: { height: 8, borderRadius: 4, backgroundColor: 'rgba(15,15,26,0.08)', overflow: 'hidden', marginTop: 8 },
   progressFill: { height: 8, borderRadius: 4, backgroundColor: '#4f46e5' },
+  bannerPhotoBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 14, backgroundColor: 'rgba(79,70,229,0.1)', marginBottom: 14 },
+  bannerPhotoBtnText: { color: '#4f46e5', fontWeight: '700', fontSize: 13.5 },
+  cancelBtn: { backgroundColor: 'rgba(15,15,26,0.08)' },
+  textInput: { borderWidth: 1, borderColor: 'rgba(15,15,26,0.12)', borderRadius: 14, padding: 12, fontSize: 14, color: '#0f0f1a', backgroundColor: 'rgba(255,255,255,0.6)' },
 });

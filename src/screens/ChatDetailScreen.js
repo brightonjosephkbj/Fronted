@@ -265,6 +265,21 @@ function ChatVideoPlayer({ uri }) {
   );
 }
 
+function formatLastSeen(ts) {
+  if (!ts) return 'offline';
+  const diffSec = Math.floor(Date.now() / 1000 - ts);
+  if (diffSec < 60) return 'last seen just now';
+  if (diffSec < 3600) return `last seen ${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `last seen ${Math.floor(diffSec / 3600)}h ago`;
+  return `last seen ${Math.floor(diffSec / 86400)}d ago`;
+}
+
+function presenceLabel(presence) {
+  if (!presence || presence.hidden) return '';
+  if (presence.online) return 'online';
+  return formatLastSeen(presence.last_seen_at);
+}
+
 export default function ChatDetailScreen() {
   const insets = useSafeAreaInsets();
   const route = useRoute();
@@ -292,6 +307,7 @@ export default function ChatDetailScreen() {
   const [popId, setPopId] = useState(null);
   const [wallpaperColor, setWallpaperColor] = useState(null);
   const [bubbleColor, setBubbleColor] = useState(null);
+  const [presence, setPresence] = useState(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -312,6 +328,27 @@ export default function ChatDetailScreen() {
         }
       })();
     }, [chat.id])
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (recipientId === AI_USER_ID || !recipientId) return;
+      let cancelled = false;
+      async function loadPresence() {
+        try {
+          const data = await apiRequest(`/presence/${recipientId}`);
+          if (!cancelled) setPresence(data);
+        } catch (e) {
+          // offline or backend unreachable - leave last known status showing
+        }
+      }
+      loadPresence();
+      const interval = setInterval(loadPresence, 30000);
+      return () => {
+        cancelled = true;
+        clearInterval(interval);
+      };
+    }, [recipientId])
   );
 
   function bubbleBackground(isMe) {
@@ -909,7 +946,7 @@ export default function ChatDetailScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>{chat.name}</Text>
             <Text style={[styles.headerStatus, otherTyping && { color: '#4f46e5' }]}>
-              {otherTyping ? 'typing...' : 'online'}
+              {otherTyping ? 'typing...' : presenceLabel(presence)}
             </Text>
           </View>
           <TouchableOpacity style={styles.headerIconBtn} onPress={() => navigation.navigate('Call', { contact: chat, callee_id: chat.id, call_type: 'video' })}><Text style={styles.headerIcon}><VideoIcon size={18} color="#0f0f1a" /></Text></TouchableOpacity>
