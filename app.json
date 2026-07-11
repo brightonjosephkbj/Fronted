@@ -3,6 +3,14 @@
     "name": "B24 Meet",
     "slug": "b24-meet",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://brighton233j-messenger-back-database.hf.space/api/manifest",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
+    },
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -33,10 +41,18 @@
         "android.permission.FOREGROUND_SERVICE",
         "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "gradleProperties": {
+        "org.gradle.jvmargs": "-Xmx2560m -XX:MaxMetaspaceSize=1024m -XX:+HeapDumpOnOutOfMemoryError",
+        "kotlin.daemon.jvmargs": "-Xmx1536m -XX:MaxMetaspaceSize=768m",
+        "org.gradle.daemon": "false",
+        "org.gradle.parallel": "false",
+        "org.gradle.workers.max": "1"
+      }
     },
     "plugins": [
       "expo-status-bar",
+      "expo-updates",
       "./plugins/withReleaseSigning.js",
       "expo-image-picker",
       "expo-document-picker",
