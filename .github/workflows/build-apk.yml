@@ -51,18 +51,6 @@ jobs:
           echo '--- Final gradle.properties ---'
           cat android/gradle.properties
 
-      - name: Debug node module resolution
-        run: |
-          node --version
-          echo '--- react-native ---'
-          node --print "require.resolve('react-native/package.json')"
-          echo '--- expo entry ---'
-          node -e "require('expo/scripts/resolveAppEntry')" || echo 'FAILED resolveAppEntry'
-          echo '--- hermes ---'
-          node --print "require.resolve('react-native/sdks/hermesc/osx-bin/hermesc')" || echo 'FAILED hermesc (may be expected on Linux)'
-          echo '--- expo cli ---'
-          node --print "require.resolve('@expo/cli/package.json')" || echo 'FAILED @expo/cli'
-
       - name: Make gradlew executable
         run: chmod +x android/gradlew
 
