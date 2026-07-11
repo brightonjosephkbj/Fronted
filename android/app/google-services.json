@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1075390910035",
+    "project_id": "b24app-10ee2",
+    "storage_bucket": "b24app-10ee2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1075390910035:android:5c47d652c5f2ded6ba00a6",
+        "android_client_info": {
+          "package_name": "com.b24.messenger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC16s44-icaSdJWwpw3EtBumoxkp0eaQZw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
